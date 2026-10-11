@@ -2,7 +2,16 @@
 
 七段，每段只依赖上游的**结构化产物**。任何一段都可以单独替换、单独测试。
 
-改契约之前先想清楚：Python 与 C# 两侧都要跟着改。
+改契约之前先想清楚：**Python 与 C# 两侧都要跟着改**（`server/models/schemas.py` ↔
+`packages/com.charforge/Editor/Data/CharForgeContracts.cs`，外加 `schemas/*.schema.json`）。
+
+> **v0.2 起每一段有两个实现，任选其一：**
+> - **C# 侧（Unity 引擎内）**：`Editor/Services/CharacterForgePipeline.cs` 编排，
+>   第 5 段 `FrameNormalizer`、第 6 段 `SheetPacker` 都在引擎内完成 —— **不需要 Python**。
+> - **Python 侧**：`server/pipeline/`，通过 `SidecarBackend` 以「整单委托」方式调用。
+>
+> 两条路径产出**同样的产物目录**（sheet.png + manifest.json + assembly_spec.json + persona.json），
+> 因此第 7 段装配代码只有一份。
 
 ---
 

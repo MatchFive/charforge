@@ -1,0 +1,27 @@
+{
+  "name": "CharForge.Editor",
+  "rootNamespace": "CharForge.EditorTools",
+  "references": [
+    "CharForge.Runtime",
+    "Newtonsoft.Json",
+    "UnityEditor.Animations",
+    "Unity.2D.Sprite.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.ai.inference",
+      "expression": "2.0.0",
+      "define": "CHARFORGE_SENTIS"
+    }
+  ],
+  "noEngineReferences": false
+}

@@ -1,76 +1,61 @@
-# CharForge · Unity 2D 角色资产流水线（UPM 包）
+# com.charforge.unity2d
+
+Unity 6 原生 2D 角色资产流水线插件。在编辑器内完成「一句话描述 + 画风参考图 → 可运行的 NPC prefab」。
 
 ## 安装
 
-两种方式，选一种：
+**方式一（本地）**：Package Manager → `+` → Add package from disk → 选择本目录的 `package.json`。
 
-**方式一：本地路径（开发期推荐）**
+**方式二（Git URL）**：Package Manager → `+` → Add package from git URL。
 
-把本仓库 `packages/com.charforge` 拷到你的 Unity 工程，或用 UPM 的本地路径引用：
+**依赖**：
+- `com.unity.nuget.newtonsoft-json`（必需，随包自动安装）
+- `com.unity.2d.sprite`（必需，随包自动安装——切片导入设置要用它的 Sprite Data Provider）
+- `com.unity.2d.animation`（**可选**）：装了才会启用 Sprite Library 生成。由 `versionDefines` + `defineConstraints` 自动开关，**没装不会报错**。
+- `com.unity.ai.inference` ≥ 2.0（**可选**）：装了才会启用「引擎内推理」后端。
 
-`Window > Package Manager > + > Add package from disk...` → 选 `packages/com.charforge/package.json`
+## 用法
 
-**方式二：Git URL（发布后）**
+`Window > CharForge 角色资产生成`
 
-`Window > Package Manager > + > Add package from git URL...` → 填仓库地址
+1. **① 推理后端**：先点「探测后端」。没有环境时选「占位后端」也能立刻跑通全流程。
+2. **② 角色描述**：一句话。文博场景填「年代/形制约束」与「藏品档案考据要点」，会进入 NPC 的知识边界。
+3. **③ 方向/动作/移动**：勾选需要的四向与动作。移动方式先选「不移动」——先拿到能站着的角色，再谈走路。
+4. 点「生成并装配」。产物落在 `Assets/CharForge/<job_id>/`。
 
-依赖：`com.unity.nuget.newtonsoft-json`、`com.unity.editorcoroutines`（UPM 会自动拉取）。
+## 目录职责
 
-## 使用
-
-1. 启动服务端：
-   ```bash
-   python -m server.cli serve
-   ```
-2. Unity 菜单 `Window > CharForge 角色资产生成`
-3. 填描述、拖入 3-5 张画风参考图、勾方向与动作
-4. 点「生成并装配」
-5. 完成后会自动选中生成的 prefab，拖进场景即可
-
-## 装配出的层级
-
-```
-NPC_云叔 (根)
-  ├── SpriteRenderer      精灵
-  ├── Animator            四向 idle / walk 状态机
-  ├── NpcCharacter        身份 + 人设 + 朝向
-  ├── Rigidbody2D         按 movement.mode 决定是否添加
-  ├── CapsuleCollider2D   按 collider.shape 决定形状
-  └── SimplePatrol2D      巡逻 / 跟随
-```
-
-## Animator 参数
-
-| 参数 | 类型 | 说明 |
+| 目录 | 内容 | 备注 |
 |---|---|---|
-| `facing` | int | 0=南 1=北 2=东 3=西 |
-| `isMoving` | bool | 是否在移动 |
-| `moveX` / `moveY` | float | 移动向量（留给更细的过渡用） |
+| `Runtime/` | `NpcCharacter` / `AigcDisclosure` / `SimplePatrol2D` | 不引用任何可选包，运行期可安全打包 |
+| `Editor/UI/` | UI Toolkit 窗口（`.uxml` + `.uss`） | Unity 6 官方推荐复杂编辑器工具用 UI Toolkit |
+| `Editor/Backends/` | `IInferenceBackend` + 4 个后端实现 | 换后端 = 换一个下拉框 |
+| `Editor/Services/` | 编排 / 归一化 / 打包 / 动画 / 进程托管 | 归一化与打包在**引擎内**完成，不需要 Python |
+| `Editor/Integrations/` | Sprite Library 集成 | 独立程序集，由 2D Animation 包有无自动开关 |
 
-`SimplePatrol2D` 会自动驱动这些参数；自定义行为脚本照同样的约定设置即可。
+## 程序集设计
 
-## 对话接入
+三个程序集，边界刻意划清：
 
-`NpcCharacter` 刻意保持"薄"：它只持有身份与人设，不主动调用任何模型。
+```
+CharForge.Runtime                      ← 无外部依赖，运行期可打包
+CharForge.Editor                       ← 核心：编排 / 装配 / 导入 / 后端
+CharForge.Editor.SpriteLibrary         ← 可选：依赖 com.unity.2d.animation
+```
 
-- 人设原文：`NpcCharacter.PersonaJson`
-- 系统提示词：`NpcCharacter.GetSystemPrompt()`
+`CharForge.Editor.SpriteLibrary` 用 `defineConstraints: ["CHARFORGE_2D_ANIMATION"]` 实现
+"装了才编译"。它通过 `[InitializeOnLoad]` 把钩子注册进 `PostAssembleHooks.AfterAssembleRoot`，
+因此**核心程序集不需要引用它**，也就不会产生"依赖可选包"的连锁问题。
 
-接 LLMUnity 或你自己的对话服务时，把 `GetSystemPrompt()` 作为 system message 传进去即可。
-**换对话后端不需要重新生成 prefab**——这是把「资产」和「人设」分开的直接好处。
+## 常见问题
 
-## 两个容易踩的坑
+**Q：为什么窗口里没有「引擎内推理」后端？**
+`com.unity.ai.inference` 未安装。装上并重启编辑器后会自动出现。
 
-**1. 切片位置全错。**
-`manifest.json` 里的 `y` 已经是 Unity 左下原点坐标。如果你在 `SpriteImportSetup` 里又翻转了一次，
-切片会上下错位。**不要再翻转。**
+**Q：生成出来的角色穿模 / 碰撞体不对？**
+碰撞体尺寸来自后端实测的角色轮廓（`manifest.character_bounds`）。若该字段缺失，
+插件会按贴图包围盒估算并**刻意偏大**。先确认 back 端产物里带了这个字段。
 
-**2. 角色悬空或陷进地面。**
-锚点在脚底（`pivot_y = 0`），所以 prefab 的原点就是角色的脚底。
-摆放时把这个原点对齐地面即可，不要再去调 Sprite 的 offset。
-
-## 已知限制
-
-- SpriteRenderer 挂在根物体上（动画绑定的 `path` 为空）。要改成子物体需同步改 `PrefabAssembler.BuildSpriteClip` 的绑定路径。
-- 行为只有巡逻与跟随两个模板。复杂行为请接 Unity Behavior 包。
-- NavMesh 是 3D 组件，2D 请用 A*（`movement.mode = astar`）或自己接 2D 寻路方案。
+**Q：prefab 名字为什么是 `NPC_yun_shu_a1b2c3` 而不是中文？**
+中文文件名在跨平台 git、CI、不同文件系统编码下会出问题。显示名保留中文（`NpcCharacter.displayName`），
+文件名用 ASCII + 短后缀防重名。

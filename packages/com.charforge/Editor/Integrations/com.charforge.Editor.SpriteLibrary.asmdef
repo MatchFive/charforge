@@ -1,0 +1,28 @@
+{
+  "name": "CharForge.Editor.SpriteLibrary",
+  "rootNamespace": "CharForge.EditorTools.Integrations",
+  "references": [
+    "CharForge.Runtime",
+    "CharForge.Editor",
+    "Unity.2D.Animation.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "CHARFORGE_2D_ANIMATION"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.2d.animation",
+      "expression": "10.0.0",
+      "define": "CHARFORGE_2D_ANIMATION"
+    }
+  ],
+  "noEngineReferences": false
+}

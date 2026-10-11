@@ -1,0 +1,143 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using CharForge.EditorTools.Data;
+using UnityEngine;
+
+#if CHARFORGE_SENTIS
+// Sentis 2.4 前后命名空间发生过一次改名（Unity.Sentis ↔ Unity.InferenceEngine）。
+// 这里用包版本定义做一个兼容开关，避免"因为命名空间换了就整个包编不过"。
+#if CHARFORGE_SENTIS_LEGACY_NS
+using Unity.Sentis;
+#else
+using Unity.InferenceEngine;
+#endif
+#endif
+
+namespace CharForge.EditorTools.Backends
+{
+    /// <summary>
+    /// Unity 引擎内推理后端（Sentis / Unity Inference Engine）。
+    ///
+    /// **它的价值是"删掉配置门槛"**：模型在工程内，进程内推理，不装 Python、不起服务、
+    /// 不联网。用户第一次打开窗口就能出东西——这点直接决定开源项目有没有第二个用户。
+    ///
+    /// **同时必须诚实说明它的边界**：
+    /// - 只能跑小体量 / 已导出的 ONNX 模型，SDXL 级别在消费级显卡上很慢；
+    /// - **无法训练 LoRA**，而"项目画风锁定"本质是训练问题（Unity 官方也得外购 Scenario /
+    ///   Layer AI 的 LoRA）。所以它能验证流程，但替代不了 ComfyUI 做正式生产。
+    /// - 需要把扩散流程拆成多个 ONNX（text encoder / UNet / VAE）分别调度，
+    ///   这一段的实现是**留给使用者的核心工作**（见下方 TODO），本文件只搭好管线骨架。
+    ///
+    /// 启用方式：在 Package Manager 安装 com.unity.ai.inference（≥2.0），
+    /// 本程序集会自动通过 versionDefine 激活（无需改代码）。
+    /// </summary>
+    public class SentisBackend : IInferenceBackend
+    {
+        /// <summary>工程内的 ONNX 模型路径（Assets/ 开头）。多模型流水线时指向主 UNet。</summary>
+        public string ModelAssetPath = "";
+
+        /// <summary>显式打开才允许被自动选中——实验性能力不该悄悄抢走默认后端。</summary>
+        public bool EnableExperimental = false;
+
+        public string Id => "sentis";
+        public string DisplayName => "Unity 引擎内推理（Sentis）";
+        public BackendKind Kind => BackendKind.Sentis;
+        public int Priority => 60;
+        public BackendCapability Capabilities =>
+#if CHARFORGE_SENTIS
+            BackendCapability.FrameGeneration;
+#else
+            BackendCapability.None;
+#endif
+
+        public Task<BackendStatus> ProbeAsync(CancellationToken ct)
+        {
+#if !CHARFORGE_SENTIS
+            return Task.FromResult(BackendStatus.Fail(
+                "未安装 Unity 推理引擎包",
+                "Package Manager → Unity Registry → 搜索并安装「Inference Engine / Sentis」(com.unity.ai.inference ≥ 2.0)；" +
+                "安装后本后端会自动出现在列表中。若只想立刻跑通流程，先切到占位后端。"));
+#else
+            if (!EnableExperimental)
+            {
+                return Task.FromResult(BackendStatus.Fail(
+                    "引擎内推理为实验性功能，默认关闭",
+                    "在「后端设置」里勾选「启用引擎内推理（实验性）」，并指定工程内的 ONNX 模型。"));
+            }
+            if (string.IsNullOrWhiteSpace(ModelAssetPath) || !File.Exists(ToAbsolute(ModelAssetPath)))
+            {
+                return Task.FromResult(BackendStatus.Fail(
+                    "未指定工程内的 ONNX 模型",
+                    "把导出的 ONNX 放入 Assets/（Sentis 会自动转成 ModelAsset），再在这里填入它的工程路径，" +
+                    "例如 Assets/CharForge/Models/sd_unet.onnx。"));
+            }
+            return Task.FromResult(BackendStatus.Ok($"引擎内推理就绪（模型 {Path.GetFileName(ModelAssetPath)}）"));
+#endif
+        }
+
+        public Task<StyleProfile> ExtractStyleAsync(
+            IReadOnlyList<string> referenceImagePaths, string presetName, CancellationToken ct)
+        {
+            // CLIP 风格相似度可以用 Sentis 跑，但需要单独的视觉编码器 ONNX；此处不假装支持。
+            return Task.FromResult<StyleProfile>(null);
+        }
+
+        public Task<CharacterCard> DescribeAsync(JobRequest request, string jobId, CancellationToken ct)
+        {
+            return Task.FromResult<CharacterCard>(null);
+        }
+
+        public Task<byte[]> MattingAsync(byte[] pngBytes, CancellationToken ct)
+        {
+            return Task.FromResult<byte[]>(null);
+        }
+
+        public Task<byte[]> GenerateFrameAsync(FrameRequest request, CancellationToken ct)
+        {
+#if !CHARFORGE_SENTIS
+            throw new NotSupportedException(
+                "未安装 com.unity.ai.inference。请在 Package Manager 中安装后重试，或切换到其他后端。");
+#else
+            // ── 需要你实现的部分（与 Python 侧 generate._generate_local 的地位等价）──
+            //
+            // Sentis 只负责"跑一张张量"，扩散流程要自己串。建议按下面四步做，
+            // 每一步单独验证过再往上叠（顺序错了会卡死在最难调试的那一环）：
+            //
+            //   1. 文本编码：CLIP text encoder ONNX → prompt 转 embedding
+            //   2. 采样循环：UNet ONNX 反复前向，配 scheduler 去噪（先用 8-12 步的
+            //      快速采样器把链路跑通，再谈画质）
+            //   3. VAE 解码：latent → RGB 张量
+            //   4. 张量 → PNG：这里必须回主线程（Texture2D + EncodeToPNG）
+            //
+            // 骨架代码（请按实际模型输入输出名调整）：
+            //
+            //   var model = ModelLoader.Load(AssetDatabase.LoadAssetAtPath<ModelAsset>(ModelAssetPath), ...);
+            //   using var worker = new Worker(model, BackendType.GPUCompute);
+            //   worker.Schedule(inputTensor);
+            //   using var output = worker.PeekOutput("output_0") as Tensor<float>;
+            //   output.CompleteOperationsAndDownload();
+            //   var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            //   tex.SetPixels32(ToColor32(output));      // NCHW → RGBA，注意 y 轴翻转
+            //   return tex.EncodeToPNG();
+            //
+            // 提示：8GB 显存以下建议 fp16 + 512px + 快速采样器；超过 1024px 会开始换页。
+            throw new NotImplementedException(
+                "引擎内推理的扩散流程尚未实现（见 SentisBackend.GenerateFrameAsync 内的 TODO 与 docs/roadmap.md 第 4 阶段）。" +
+                "在此之前请使用 ComfyUI 或 Python 服务后端。");
+#endif
+        }
+
+        private static string ToAbsolute(string assetPath)
+        {
+            string trimmed = assetPath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase)
+                ? assetPath.Substring("Assets/".Length)
+                : assetPath;
+            return Path.Combine(Application.dataPath, trimmed);
+        }
+
+        public void Dispose() { }
+    }
+}

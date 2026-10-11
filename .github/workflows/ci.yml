@@ -44,26 +44,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 校验 package.json 必需字段
-        run: |
-          python - <<'PY'
-          import json, pathlib, sys
-          p = pathlib.Path("packages/com.charforge/package.json")
-          d = json.loads(p.read_text(encoding="utf-8"))
-          missing = [k for k in ("name", "version", "unity", "displayName") if k not in d]
-          if missing:
-              print("缺少必需字段:", missing)
-              sys.exit(1)
-          if not d["name"].startswith("com."):
-              print("UPM 包名须以 com. 开头:", d["name"])
-              sys.exit(1)
-          print("package.json 校验通过:", d["name"], d["version"])
-          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: 校验 Editor / Runtime 目录存在
-        run: |
-          test -d packages/com.charforge/Editor
-          test -d packages/com.charforge/Runtime
+      # 校验的都是"在 CI 里能查出来、但一旦漏掉就会在用户工程里爆掉"的问题：
+      # 脚本漏在 asmdef 之外（会被编进 Assembly-CSharp 与用户脚本冲突）、
+      # 程序集引用拼错、类型重名、引用了不存在的 uxml/uss、
+      # asmdef 硬引用与 package.json 依赖不一致。
+      - name: 校验包结构（asmdef / 脚本归属 / 引用 / 资产路径）
+        run: python scripts/validate_unity_package.py
 
   schema:
     name: JSON Schema 校验

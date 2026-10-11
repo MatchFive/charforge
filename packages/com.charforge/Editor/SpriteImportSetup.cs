@@ -1,75 +1,38 @@
 using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json.Linq;
+using CharForge.EditorTools.Data;
+using Newtonsoft.Json;
 using UnityEditor;
+using UnityEditor.U2D.Sprites;
 using UnityEngine;
 
 namespace CharForge.EditorTools
 {
     /// <summary>
-    /// 自动写贴图的导入设置（本项目三处空白点之一）。
+    /// 按 manifest 一次性写对贴图的导入设置。**本项目三处「插件才做得到」的空白点之一。**
     ///
-    /// 为什么需要它：手工在 Sprite Editor 里点几十个切片、调锚点、改 PPU、改过滤模式，
-    /// 是 2D 项目里最枯燥也最容易出错的环节。这里读 manifest.json 一次性写对。
+    /// 独立工具为什么做不到：它只能把 PNG 丢给你，切片数量、锚点、PPU、过滤模式、
+    /// 压缩开关得你在 Sprite Editor 里手工点几十下——这正是 2D 项目里最枯燥
+    /// 也最容易点错的一环。而 .meta 是 Unity 侧资产，只有插件能在工程内直接写对。
     ///
-    /// 坐标系说明（这里最容易踩坑）：
-    /// Python 侧产出的 SliceInfo.y 已经是 Unity 的**左下原点**坐标，
-    /// 与 TextureImporter.spritesheet[].rect 的坐标系一致，直接填即可，不要再翻转。
+    /// 采用 Unity 6 推荐的 <c>SpriteDataProviderFactories</c>（多切片的现代 API），
+    /// 而不是旧的 <c>TextureImporter.spritesheet</c>：后者在批量切片 + spriteID 稳定性上不可靠，
+    /// 且已不属于官方推荐路径。
+    ///
+    /// 坐标系说明（这里最容易踩坑）：manifest 里的 <c>y</c> 已经由服务端换算为 Unity 的
+    /// **左下原点**值，与 <c>Rect</c> / <c>SpriteRect</c> 的坐标系一致，**不要再翻转**。
     /// </summary>
     public static class SpriteImportSetup
     {
-        public class SliceInfo
-        {
-            public string name;
-            public float x;
-            public float y;
-            public float w;
-            public float h;
-            public float pivotX = 0.5f;
-            public float pivotY = 0f;
-        }
-
-        public static List<SliceInfo> ParseManifest(string manifestPath)
-        {
-            var list = new List<SliceInfo>();
-            if (!File.Exists(manifestPath))
-            {
-                Debug.LogError($"[CharForge] 找不到 manifest：{manifestPath}");
-                return list;
-            }
-
-            var root = JObject.Parse(File.ReadAllText(manifestPath));
-            var sprites = root["sprites"] as JArray;
-            if (sprites == null) return list;
-
-            foreach (var s in sprites)
-            {
-                list.Add(new SliceInfo
-                {
-                    name = (string)s["name"],
-                    x = (float)s["x"],
-                    y = (float)s["y"],
-                    w = (float)s["w"],
-                    h = (float)s["h"],
-                    pivotX = s["pivot_x"] != null ? (float)s["pivot_x"] : 0.5f,
-                    pivotY = s["pivot_y"] != null ? (float)s["pivot_y"] : 0f
-                });
-            }
-            return list;
-        }
-
-        /// <summary>按 manifest 配置贴图导入设置。返回切片名 -> Sprite 的映射。</summary>
-        public static Dictionary<string, Sprite> Apply(string textureAssetPath, string manifestPath)
+        /// <summary>按 manifest 配置导入设置，返回「切片名 → Sprite」映射。</summary>
+        public static Dictionary<string, Sprite> Apply(string textureAssetPath, SpriteManifest manifest)
         {
             var result = new Dictionary<string, Sprite>();
-            var slices = ParseManifest(manifestPath);
-            if (slices.Count == 0) return result;
-
-            var root = JObject.Parse(File.ReadAllText(manifestPath));
-            int ppu = root["pixels_per_unit"] != null ? (int)root["pixels_per_unit"] : 100;
-            string filterMode = root["filter_mode"] != null ? (string)root["filter_mode"] : "Bilinear";
-            string textureType = root["texture_type"] != null ? (string)root["texture_type"] : "Sprite";
-            bool alphaIsTransparency = root["alpha_is_transparency"] == null || (bool)root["alpha_is_transparency"];
+            if (manifest == null || manifest.Sprites == null || manifest.Sprites.Count == 0)
+            {
+                Debug.LogWarning("[CharForge] manifest 中没有切片，跳过导入设置。");
+                return result;
+            }
 
             var importer = AssetImporter.GetAtPath(textureAssetPath) as TextureImporter;
             if (importer == null)
@@ -78,18 +41,20 @@ namespace CharForge.EditorTools
                 return result;
             }
 
-            importer.textureType = textureType == "Default"
+            // ── 1. 先写基础导入设置并重新导入，让 provider 能拿到最新的贴图状态 ──
+            importer.textureType = manifest.TextureType == "Default"
                 ? TextureImporterType.Default
                 : TextureImporterType.Sprite;
-
             importer.spriteImportMode = SpriteImportMode.Multiple;
-            importer.spritePixelsPerUnit = ppu;
-            importer.alphaIsTransparency = alphaIsTransparency;
+            importer.spritePixelsPerUnit = Mathf.Max(1, manifest.PixelsPerUnit);
+            importer.alphaIsTransparency = manifest.AlphaIsTransparency;
             importer.mipmapEnabled = false;
             importer.wrapMode = TextureWrapMode.Clamp;
+            importer.maxTextureSize = 4096;
 
-            // 像素风用 Point 避免插值糊边；手绘风用 Bilinear 更平滑
-            switch (filterMode)
+            // 像素风必须 Point + 不压缩，否则放大后糊边、颜色也会被压出噪点；
+            // 手绘/厚涂用 Bilinear + HQ 压缩，观感更平滑。
+            switch (manifest.FilterMode)
             {
                 case "Point":
                     importer.filterMode = FilterMode.Point;
@@ -105,28 +70,61 @@ namespace CharForge.EditorTools
                     break;
             }
 
-            var metas = new SpriteMetaData[slices.Count];
-            for (int i = 0; i < slices.Count; i++)
-            {
-                var s = slices[i];
-                metas[i] = new SpriteMetaData
-                {
-                    name = s.name,
-                    rect = new Rect(s.x, s.y, s.w, s.h),
-                    alignment = (int)SpriteAlignment.Custom,
-                    pivot = new Vector2(s.pivotX, s.pivotY)
-                };
-            }
-            importer.spritesheet = metas;
             importer.SaveAndReimport();
 
+            // ── 2. 用现代 Sprite Data Provider 写入切片 ──
+            var factories = new SpriteDataProviderFactories();
+            factories.Init();
+            var provider = factories.GetSpriteEditorDataProviderFromObject(importer);
+            provider.InitSpriteEditorDataProvider();
+
+            var rects = new SpriteRect[manifest.Sprites.Count];
+            for (int i = 0; i < manifest.Sprites.Count; i++)
+            {
+                var s = manifest.Sprites[i];
+                rects[i] = new SpriteRect
+                {
+                    name = s.Name,
+                    rect = new Rect(s.X, s.Y, s.W, s.H),
+                    alignment = SpriteAlignment.Custom,
+                    pivot = new Vector2(Mathf.Clamp01(s.PivotX), Mathf.Clamp01(s.PivotY)),
+                    // spriteID 必须稳定生成并在多次导入间保持，否则动画曲线里的 Sprite 引用会断。
+                    spriteID = GUID.Generate()
+                };
+            }
+
+            provider.SetSpriteRects(rects);
+            provider.Apply();
+            AssetDatabase.ImportAsset(textureAssetPath, ImportAssetOptions.ForceUpdate);
+
+            // ── 3. 回读切片 ──
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(textureAssetPath))
             {
                 if (obj is Sprite sp) result[sp.name] = sp;
             }
 
-            Debug.Log($"[CharForge] 导入设置完成：{slices.Count} 个切片，PPU={ppu}，Filter={filterMode}");
+            if (result.Count != manifest.Sprites.Count)
+            {
+                Debug.LogWarning(
+                    $"[CharForge] 切片数不一致：manifest 声明 {manifest.Sprites.Count} 个，实际导入 {result.Count} 个。" +
+                    "请检查 manifest 的坐标是否越出贴图边界。");
+            }
+
+            Debug.Log($"[CharForge] 导入设置完成：{result.Count} 个切片，" +
+                      $"PPU={manifest.PixelsPerUnit}，Filter={manifest.FilterMode}");
             return result;
+        }
+
+        /// <summary>从 JSON 文件读 manifest 后配置导入设置。</summary>
+        public static Dictionary<string, Sprite> Apply(string textureAssetPath, string manifestJsonPath)
+        {
+            if (!File.Exists(manifestJsonPath))
+            {
+                Debug.LogError($"[CharForge] 找不到 manifest：{manifestJsonPath}");
+                return new Dictionary<string, Sprite>();
+            }
+            var manifest = JsonConvert.DeserializeObject<SpriteManifest>(File.ReadAllText(manifestJsonPath));
+            return Apply(textureAssetPath, manifest);
         }
     }
 }

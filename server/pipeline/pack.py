@@ -10,17 +10,80 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from server.config import settings
 from server.models.schemas import (
     ActionName,
+    CharacterBounds,
     Direction,
     FrameAsset,
     SpriteManifest,
     SpriteRect,
     SpriteSheetInfo,
 )
+
+ALPHA_THRESHOLD = 8  # alpha 低于此值视为透明，与 normalize 段保持一致
+
+
+def measure_character_bounds(
+    paths: list[str],
+    cell: tuple[int, int],
+    pixels_per_unit: int = 100,
+) -> CharacterBounds | None:
+    """实测角色可视范围（世界单位，相对脚底锚点）。
+
+    为什么要实测而不是写死：碰撞体一旦不贴合角色，自动装配出来的 prefab 就是废的——
+    要么拦不住玩家（穿模），要么挡住半条街（卡住）。而归一化之后的帧已经统一了比例与锚点，
+    此时量一次就是准的。
+
+    坐标为「所有帧 alpha 包围盒的并集」，取并集而非单帧，是为了让待机/行走的
+    碰撞体保持一致（逐帧变化的碰撞体会让物理表现抖动）。
+    """
+    if not paths:
+        return None
+
+    cw, ch = cell
+    left, top, right, bottom = cw, ch, 0, 0
+    measured = False
+
+    for p in paths:
+        try:
+            with Image.open(p) as im:
+                alpha = np.asarray(im.convert("RGBA").getchannel("A"))
+        except Exception:  # noqa: BLE001 —— 单帧损坏不该让整单失败
+            continue
+
+        mask = alpha > ALPHA_THRESHOLD
+        if not mask.any():
+            continue
+        rows = np.any(mask, axis=1)
+        cols = np.any(mask, axis=0)
+        t, b = int(np.argmax(rows)), int(len(rows) - np.argmax(rows[::-1]))
+        l, r = int(np.argmax(cols)), int(len(cols) - np.argmax(cols[::-1]))
+
+        left, top = min(left, l), min(top, t)
+        right, bottom = max(right, r), max(bottom, b)
+        measured = True
+
+    if not measured:
+        return None
+
+    # 图像坐标是「左上原点、y 向下」，而锚点在画布底部中线（pivot_y = 0）。
+    # 换算到 Unity 的「以锚点为原点、y 向上、单位 = 世界单位」：
+    px_to_unit = 1.0 / max(1, pixels_per_unit)
+    width = (right - left) * px_to_unit
+    height = (bottom - top) * px_to_unit
+    center_x = ((left + right) / 2.0 - cw / 2.0) * px_to_unit
+    center_y = (ch - (top + bottom) / 2.0) * px_to_unit
+
+    return CharacterBounds(
+        width=round(width, 4),
+        height=round(height, 4),
+        center_x=round(center_x, 4),
+        center_y=round(center_y, 4),
+    )
 
 
 def _group_key(f: FrameAsset) -> str:
@@ -98,14 +161,26 @@ def build_manifest(
     rects: list[SpriteRect],
     pixels_per_unit: int = 100,
     pixel_art: bool = False,
+    frame_paths: list[str] | None = None,
 ) -> SpriteManifest:
-    """组装清单。pixel_art=True 时用 Point 过滤，避免像素风被插值糊掉。"""
+    """组装清单。pixel_art=True 时用 Point 过滤，避免像素风被插值糊掉。
+
+    传入 frame_paths 时会实测角色包围盒并写进 manifest——
+    这是「碰撞体贴合角色」的前提，缺了它 Unity 侧只能拍脑袋填尺寸。
+    """
+    bounds = None
+    if frame_paths:
+        bounds = measure_character_bounds(
+            frame_paths, (sheet.cell_width, sheet.cell_height), pixels_per_unit
+        )
+
     return SpriteManifest(
         job_id=job_id,
         sheet=sheet,
         sprites=rects,
         pixels_per_unit=pixels_per_unit,
         filter_mode="Point" if pixel_art else "Bilinear",
+        character_bounds=bounds,
     )
 
 

@@ -107,7 +107,11 @@ async def run_job(req: JobRequest, job_id: str | None = None, emit: Emit = None)
         await _emit(emit, job_id, JobStage.PACK, 82, "打包 sprite sheet")
         sheet_info, rects = pack.pack_sheet(frames, out_dir / "sheet.png", cell=canvas, columns=4)
         manifest = pack.build_manifest(
-            job_id, sheet_info, rects, pixel_art=_is_pixel_style(style)
+            job_id,
+            sheet_info,
+            rects,
+            pixel_art=_is_pixel_style(style),
+            frame_paths=norm_paths,
         )
         pack.save_manifest(manifest, out_dir)
         await _emit(

@@ -147,6 +147,30 @@ def build_animations(manifest: SpriteManifest, frame_rate: int = 8) -> list[Anim
     return clips
 
 
+def _build_collider(manifest: SpriteManifest) -> ColliderSpec:
+    """依实测角色包围盒生成贴合碰撞体。
+
+    这是「自动装配出来的 prefab 能不能直接用」的关键一环：
+    碰撞体只要不贴合，角色就会穿模或者卡在门口，用户第一分钟就会发现工具没用。
+    """
+    bounds = manifest.character_bounds
+    if bounds is None:
+        # 兜底：拿不到实测数据时给一个明显偏大的胶囊，宁可挡住也不要穿模。
+        return ColliderSpec(shape="capsule", radius=0.5, size=(1.0, 2.0), offset=(0.0, 1.0))
+
+    # 略小于可视轮廓：留出的余量让角色贴墙时不会看起来"悬着"。
+    shrink = 0.9
+    width = max(0.05, bounds.width * shrink)
+    height = max(0.05, bounds.height * shrink)
+
+    return ColliderSpec(
+        shape="capsule",
+        radius=width / 2.0,
+        size=(round(width, 4), round(height, 4)),
+        offset=(bounds.center_x, bounds.center_y),
+    )
+
+
 def build_assembly_spec(
     card: CharacterCard,
     manifest: SpriteManifest,
@@ -162,7 +186,7 @@ def build_assembly_spec(
         prefab_name=make_prefab_name(card, job_id),
         character_card=card,
         animations=animations,
-        collider=ColliderSpec(shape="capsule", radius=0.3, size=(0.6, 1.0), offset=(0.5, 0.0)),
+        collider=_build_collider(manifest),
         movement=req.movement,
         dialogue=DialogueSpec(
             enabled=req.dialogue_enabled,

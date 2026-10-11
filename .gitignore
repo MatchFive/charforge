@@ -40,6 +40,9 @@ UserSettings/
 *.sln
 *.unitypackage
 
+# Unity 插件在工程根目录落的中间产物缓存（非 Assets 下，见 ProjectAssetWriter）
+CharForgeCache/
+
 # 系统
 .DS_Store
 Thumbs.db

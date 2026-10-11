@@ -1,0 +1,34 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="root" class="cf-root">
+
+        <ui:VisualElement class="cf-header">
+            <ui:Label text="CharForge · 2D 角色资产流水线" class="cf-title" />
+            <ui:Label name="subtitle" class="cf-subtitle"
+                      text="一句话 + 项目画风参考图 → 可直接拖进场景的 NPC prefab（全程不离开编辑器）" />
+        </ui:VisualElement>
+
+        <ui:ScrollView name="body" class="cf-body">
+
+            <ui:Foldout name="section-backend" text="① 推理后端（可替换）" value="true" class="cf-section" />
+            <ui:Foldout name="section-job" text="② 角色描述" value="true" class="cf-section" />
+            <ui:Foldout name="section-output" text="③ 方向 / 动作 / 移动" value="true" class="cf-section" />
+            <ui:Foldout name="section-options" text="④ 后端设置（一般不用改）" value="false" class="cf-section" />
+
+            <ui:VisualElement class="cf-actions">
+                <ui:Button name="btn-generate" text="生成并装配" class="cf-primary" />
+                <ui:Button name="btn-reassemble" text="仅重新装配（用上次产物）" />
+                <ui:Button name="btn-open-output" text="打开产物目录" />
+            </ui:VisualElement>
+
+        </ui:ScrollView>
+
+        <ui:VisualElement class="cf-footer">
+            <ui:ProgressBar name="progress" title="就绪" />
+            <ui:Label name="next-action" class="cf-next-action" />
+        </ui:VisualElement>
+
+        <ui:Label text="日志" class="cf-log-title" />
+        <ui:ScrollView name="log" class="cf-log" />
+
+    </ui:VisualElement>
+</ui:UXML>

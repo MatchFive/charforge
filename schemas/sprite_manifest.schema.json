@@ -54,6 +54,17 @@
     },
     "filter_mode": { "enum": ["Point", "Bilinear", "Trilinear"], "default": "Bilinear" },
     "alpha_is_transparency": { "type": "boolean", "default": true },
-    "texture_type": { "enum": ["Sprite", "Default"], "default": "Sprite" }
+    "texture_type": { "enum": ["Sprite", "Default"], "default": "Sprite" },
+    "character_bounds": {
+      "type": "object",
+      "description": "角色可视范围（世界单位，相对脚底锚点）。由 [5] Normalize 后的帧 alpha 包围盒实测。Unity 侧据此生成贴合碰撞体；缺失时会回退为按贴图包围盒现算。",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "center_x": { "type": "number", "default": 0 },
+        "center_y": { "type": "number", "default": 0 }
+      }
+    }
   }
 }

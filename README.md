@@ -1,90 +1,55 @@
-# CharForge · Unity 2D 角色资产流水线
+# CharForge · Unity 6 原生 2D 角色资产插件
 
-> 一句话 + 项目画风参考图 → **可直接拖进场景、会走、会说话的 2D NPC prefab**。
+> 在编辑器里说一句话 + 拖几张项目画风参考图 → **得到可直接拖进场景、会走、会说话的 2D NPC prefab**。
 
-LLM 编排 + 画风锁定 + Unity 装配。面向独立游戏团队与文博数字化场景（数字展陈角色、导览员立绘、展项插图、社教动画帧）。
-
----
-
-## 这个项目解决什么
-
-现有工具分成两半，中间是空的：
-
-| 已有工具 | 做到哪一步 | 缺什么 |
-|---|---|---|
-| SpriteForge | master ref 锁风格 + 抠图 + 归一化 + 元数据清洗 | 只出**静态 sprite**；无动画；无 Unity 装配；依赖云 API |
-| GenForgeSprite | REST API + 六类动画帧 + 引擎元数据 | 画风靠**预设**不是自动锁定；依赖云 API；无 prefab 装配 |
-| Animyth / abutbul-imgen | 脚本级 demo | 无产品化 |
-| Ludo AI / Unity AI Generators | 商业 / 官方云端 | 只出资产，**不装配**；云端，素材出本机 |
-
-**CharForge 补的是「装配层」**：把 sprite 集变成带 Animator、2D 碰撞、寻路、人设与对话组件的 prefab。同时提供**项目画风自动锁定**与**Unity 导入设置自动生成**（切片 / 锚点 / PPU / 像素网格对齐）——这两项在开源侧目前无等价实现。
-
-三条设计原则：
-
-1. **本地优先**：全链路可自托管，美术资产与馆藏素材**不出本机**。
-2. **人类在环**：master reference 与关键帧需人工确认，不假装全自动——这也符合企业真实做法。
-3. **不重造模型**：生成、抠图、ControlNet 全部复用成熟开源件，本项目只做编排与装配。
+**这是一个 Unity 6 UPM 包，不是一个独立工具。** 从探测后端到出图、切片、装配、打开产物，全程不离开 Editor。
 
 ---
 
-## 架构
+## 为什么"插件"和"独立工具"不是一回事
+
+现有同类工具（SpriteForge 是 CLI、GenForgeSprite 是 REST 服务、Animyth 是教程脚本）能力都不弱，但都有一个结构性问题：**它们是宿主，Unity 只是产物接收方**。于是用户必须离开编辑器、跑命令、再回 Unity 手工导入。
+
+CharForge v0.2 做了**宿主倒置**：Unity 是唯一控制面，推理后端降级为可替换的下游。差别直接体现在产物上——
+
+| 产物 | 独立工具 | CharForge（插件） | 靠什么 API |
+|---|---|---|---|
+| 切片正确的 sheet + `.meta` | 得手工在 Sprite Editor 点几十下 | ✅ 自动 | `SpriteDataProviderFactories` |
+| **`SpriteLibraryAsset`（分类/标签）** | ❌ 做不到 | ✅ 自动 | `SpriteLibraryAsset` |
+| **`AnimatorController` + `AnimationClip`** | ❌ 做不到 | ✅ 自动 | `UnityEditor.Animations` |
+| **可拖进场景的 `.prefab`** | ❌ 做不到 | ✅ 自动 | `PrefabUtility` |
+| 图层式 `.psb` → PSD Importer 自动绑骨 | ❌ 做不到 | ⬜ 路线图 W4 | `com.unity.2d.psdimporter` |
+
+---
+
+## 四层可替换推理后端
+
+同一套 `IInferenceBackend` 接口收口，换后端 = 换窗口里一个下拉框，装配代码一行不改。
+
+| 层 | 后端 | 外部进程 | 画风锁定 | 适用 |
+|---|---|---|---|---|
+| A | **占位后端** | 无 | — | 零依赖，第一次打开就能跑通全流程；也是 CI 的回归基线 |
+| B | **引擎内推理（Sentis）** | 无（模型在工程内） | ❌（无法训 LoRA） | 不装任何环境出图；实验性，需 `com.unity.ai.inference` |
+| C | **本地 ComfyUI** | 需（插件可代管起停） | ✅ 完整（LoRA + ControlNet + IP-Adapter） | **正式生产首选** |
+| C | **自带 Python 服务**（`server/`） | 需（插件可代管起停） | ✅ | 复用 v0.1 已验证的流水线 |
+| D | **远端 / 商业 API** | 网络 | 视供应商 | 团队已有付费画风模型（接口已留，未实现） |
+
+> **引擎内推理不能替代 ComfyUI**：画风一致性本质是**训练问题**，不是提示词问题——Unity 官方内置的 LoRA 也来自外购。所以 B 层的价值是"删掉配置门槛"，C 层才是画质与一致性的正解。
+
+---
+
+## 快速开始（约 5 分钟，无需任何模型）
 
 ```
-                    ┌─────────────────────── Unity Editor ───────────────────────┐
-                    │  CharForgeWindow  →  描述 / 参考图 / 动作勾选 / 人审确认       │
-                    │  PrefabAssembler  →  生成 prefab（Animator / Collider / 寻路）│
-                    │  SpriteImportSetup→  自动写 .meta（切片 / 锚点 / PPU / Point）│
-                    └───────────────┬───────────────────────────────────────────┘
-                                    │  WebSocket（流式进度）/ HTTP
-                    ┌───────────────▼───────────── Python 服务端 ────────────────┐
-                    │                                                            │
-  角色描述 ──LLM──►  │ [1] Prompt Forge  →  结构化角色卡 → 分方向 / 分动作提示词组   │
-  参考图(3-5张) ───► │ [2] Style Lock    →  master reference + LoRA / IP-Adapter   │
-                    │ [3] Generate      →  SDXL / SD1.5 + ControlNet（四向 + 动作） │
-                    │ [4] Matting       →  rembg → 透明 PNG                        │
-                    │ [5] Normalize     →  裁切 / 统一画布 / 锚点 / 像素网格对齐     │
-                    │ [6] Pack          →  sprite sheet + 切片元数据                │
-                    │ [7] Assemble      →  装配指令 JSON（下发给 Unity）            │
-                    └────────────────────────────────────────────────────────────┘
+1. Unity 6 工程 → Window > Package Manager → + → Add package from disk
+   → 选择 packages/com.charforge/package.json
+2. Window > CharForge 角色资产生成
+3. 后端选「占位后端（零依赖·立即可用）」
+4. 填一句角色描述 → 点「生成并装配」
+5. 在 Assets/CharForge/<job_id>/ 里得到 prefab —— 拖进场景即可
 ```
 
----
-
-## 快速开始（W1：先跑通最细的管子，约 30 分钟）
-
-目标：**一句描述 → 一张图 → 抠图 → 归一化 → 透明 PNG**。先不管风格与四向。
-
-```bash
-# 1. 环境
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-pip install -e ".[dev,local]"
-
-# 2. 无 GPU 也能验证全链路（用占位图跑通水管）
-python -m server.cli smoke --prompt "博物馆导览员，青绿山水色调" --out ./out
-
-# 3. 起服务
-uvicorn server.main:app --reload --port 8000
-# 打开 http://localhost:8000/docs 看 API
-```
-
-产出在 `./out/<job_id>/`：`raw.png` → `cutout.png` → `normalized/` → `sheet.png` + `manifest.json`。
-
-> **重要**：先跑通水管，再接真实模型。任何一环没有单独验证过，就不要往上叠第二环。
-
----
-
-## 流水线七段（契约见 `docs/pipeline.md`）
-
-| # | 阶段 | 模块 | 状态 |
-|---|------|------|------|
-| 1 | Prompt Forge（角色卡 → 提示词组） | `server/pipeline/prompt_forge.py` | ✅ 模板版可用 / ⬜ LLM 版待接 |
-| 2 | Style Lock（画风锁定） | `server/pipeline/style_lock.py` | ⬜ 待实现（接口已定） |
-| 3 | Generate（生成） | `server/pipeline/generate.py` | ⬜ 待实现（占位图可跑通） |
-| 4 | Matting（抠图） | `server/pipeline/matting.py` | ✅ rembg 版可用 / ⬜ 降级版待补 |
-| 5 | Normalize（归一化） | `server/pipeline/normalize.py` | ✅ 可用（裁切/画布/锚点/网格） |
-| 6 | Pack（打包） | `server/pipeline/pack.py` | ✅ 可用（sheet + manifest） |
-| 7 | Assemble（装配） | `server/pipeline/assemble.py` + `Editor/PrefabAssembler.cs` | ⬜ 待实现（指令格式已定） |
+想接真实模型时（本地 ComfyUI / 自带 Python 服务），在窗口「④ 后端设置」里填地址与启动命令，之后点「启动后端」由插件代管进程——**你不需要开终端**。
 
 ---
 
@@ -92,63 +57,60 @@ uvicorn server.main:app --reload --port 8000
 
 ```
 unity2d-charforge/
-├── packages/com.charforge/        # Unity UPM 包（C#）
-│   ├── Editor/                    #   窗口 / 装配 / 导入设置
-│   └── Runtime/                   #   运行期组件（NPC 组件 / 巡逻行为）
-├── server/                        # Python 服务端（FastAPI + WebSocket）
-│   ├── pipeline/                  #   七段流水线
-│   ├── adapters/                  #   生成后端适配器（本地 / 云端可切换）
-│   └── models/                    #   pydantic 数据模型
-├── configs/
-│   ├── style_presets/             #   风格预设（像素 / 手绘 / 文博…）
-│   └── pose_templates/            #   四向 + 动作 ControlNet 模板
-├── schemas/                       # JSON Schema（角色卡 / 切片清单 / 人设）
-├── examples/
-│   ├── town_shopkeeper/           #   游戏向示例
-│   └── museum_guide/              #   文博向示例（含形制约束）
-├── docs/                          # 流水线契约 / 就绪度规则 / 模板清单 / 路线图
-└── tests/
+├── packages/com.charforge/            # ★ Unity 6 UPM 包（控制面）
+│   ├── Runtime/                       #   运行期组件（不依赖任何可选包）
+│   │   ├── NpcCharacter.cs            #     身份 + 人设 + 朝向
+│   │   ├── AigcDisclosure.cs          #     AIGC 显式标识数据（GB 45438-2025）
+│   │   └── SimplePatrol2D.cs          #     巡逻行为
+│   └── Editor/
+│       ├── UI/                        #   UI Toolkit 窗口（uxml + uss）
+│       ├── Backends/                  #   IInferenceBackend + 4 个实现
+│       ├── Services/
+│       │   ├── CharacterForgePipeline.cs   # C# 编排（取代 Python orchestrator）
+│       │   ├── FrameNormalizer.cs          # [5] 归一化（引擎内，不需 Python）
+│       │   ├── SheetPacker.cs              # [6] 打包（引擎内，不需 Python）
+│       │   ├── AnimatorWriter.cs           # 生成 Controller + Clip
+│       │   ├── BackendProcessManager.cs    # 后端进程托管（起停 + 日志转发）
+│       │   └── ProjectAssetWriter.cs       # 工程内落盘
+│       ├── PrefabAssembler.cs         # ★ 装配（本项目最有价值的代码）
+│       ├── SpriteImportSetup.cs       # ★ 导入设置自动生成
+│       ├── PostAssembleHooks.cs       # 可选依赖的扩展点
+│       └── Integrations/              # Sprite Library（自动按包有无开关）
+├── server/                            # Python 服务：**v0.2 后是可选后端之一**
+├── schemas/                           # 三方共同语言（Python / C# / JSON Schema）
+├── configs/                           # 风格预设 + 四向姿势模板
+├── examples/                          # 游戏向 + 文博向示例
+├── docs/architecture.md               # ★ 架构总纲（先读这个）
+└── scripts/validate_unity_package.py  # CI：asmdef 归属 / 引用 / 资产路径校验
 ```
 
 ---
 
-## 四周路线图
+## 三方契约（唯一的强耦合点）
 
-| 周 | 目标 | 验收 |
-|---|---|---|
-| **W1** | 管道跑通 | 描述 → 单图 → 抠图 → 归一化 → 透明 PNG |
-| **W2** | 风格锁定 + 四向 + 打包 | 3-5 张参考图 → 四向 sprite sheet + 切片元数据 |
-| **W3** | Unity 装配 ★ | Editor 窗口 → prefab，拖入场景能走 |
-| **W4** | 对话 + 示例 + 文档 | 接 LLMUnity 通话；两个示例；README + GIF；v0.1.0 |
+`assembly_spec.json` / `manifest.json` / `persona.json` 三份结构由
+`schemas/*.schema.json` 定义，Python（`server/models/schemas.py`）与
+C#（`Editor/Data/CharForgeContracts.cs`）两侧必须逐字段一致。
 
-详见 `docs/roadmap.md`。
+保留 JSON 契约（而不是让服务端直接产 prefab）的三个理由：装配指令**可重放**（改台词不用重新出图）、
+CI **不依赖 Unity**、人设与美术资产**解耦**。
 
 ---
 
-## 验收指标
+## 文档
 
-| 指标 | 目标 |
+| 文档 | 内容 |
 |---|---|
-| 单角色（四向 idle + walk，8-12 帧）总耗时 | ≤ 8 分钟（本地 12GB 显存） |
-| 画风一致性（与 master ref 的 CLIP 相似度） | ≥ 0.85 |
-| 帧间一致性（相邻帧姿势关键点偏差） | ≤ 5 px |
-| Unity 就绪度（无手工修正即可入场景） | 100% |
-| 生成成本 | 本地全托管 → 单角色 API 成本 ≈ 0 |
-
----
-
-## TODO（你自己实现的核心）
-
-按优先级：
-
-1. `pipeline/generate.py` —— 接 diffusers（SDXL / SD1.5）+ ControlNet，输出四向与动作帧
-2. `pipeline/style_lock.py` —— CLIP 反推风格标签 + IP-Adapter / LoRA 挂载
-3. `Editor/PrefabAssembler.cs` —— 读装配指令生成 prefab（本项目最有价值的 30 行）
-4. `Editor/SpriteImportSetup.cs` —— 自动写 `.meta` 切片设置
-5. `adapters/local_sd.py` —— ComfyUI API 或 diffusers 直调
+| `docs/architecture.md` | **架构总纲**：宿主倒置、三层后端、进程托管、v0.1→v0.2 迁移对照 |
+| `docs/pipeline.md` | 七段流水线的输入输出契约 |
+| `docs/unity_readiness.md` | Unity 就绪度评分规则（法线/UV/PPU/锚点/切片） |
+| `docs/roadmap.md` | 分周实施路线（含验收标准） |
 
 ---
 
 ## 许可
 
-MIT（待定）。生成内容的使用须遵守素材来源的授权与所在地法规；面向国内发布时请遵守 AIGC 内容标识相关要求（见 `docs/` 后续补充）。
+MIT（待定）。生成内容的使用须遵守素材来源授权与所在地法规；面向国内发布时须遵守
+《人工智能生成合成内容标识办法》与强制性国标 GB 45438-2025 的标识要求——
+插件已在 prefab 上写入 `AigcDisclosure` 组件承载界面侧显式标识，但**不替代**
+图片/音频/视频自身的标识与元数据写入。
