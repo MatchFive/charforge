@@ -4,6 +4,65 @@
 
 ---
 
+## [0.3.1] — 2026-10-11
+
+### 承载第二条生成路线（Qwen-Image-2.1），并修掉两处只在换路线时才会暴露的缺陷
+
+**1. 换上 Qwen 工作流后，提示词会「静默丢失」。**
+
+`WorkflowBindings.SetText` 把字段名**写死**成了 `inputs["text"]`。
+SD1.5/SDXL 的 `CLIPTextEncode` 确实叫 `text`；但 Qwen-Image 2.1 的
+`TextEncodeQwenImage21` 用的是 `prompt` / `negative_prompt`，**而且正向与负向
+挂在同一个节点上**。往一个没有 `text` 键的 `inputs` 里赋值，Json.NET 不会报错——
+它会安静地**加一个新字段**，ComfyUI 读不到、直接忽略。于是提示词一个字都没进模型，
+日志里只有一行「生成完成」。症状是「出图跟角色描述毫不相干」，
+看起来像模型不行或提示词写得不好，实际是接线问题。
+
+修法三处：
+
+- 字段名改为**候选探测**：正向 `text → prompt → prompt_text`，
+  负向 `text → negative_prompt → prompt`，命中即写；绑定文件可用
+  `positive_input` / `negative_input` 显式指定，优先级最高。
+- 启发式不再只认 `CLIPTextEncode`，改为认所有 `class_type` 含 `TextEncode` 的节点，
+  并额外识别「单节点同时持有正负提示词」这一形态（Qwen 就是这样，
+  此时正向取 `prompt`、负向取 `negative_prompt`）。
+- `SetText` 改为返回 bool，`Apply` 改为返回告警列表：**写不进去会被明确报出来**，
+  而不是像以前那样无声无息。一个把提示词丢掉却保持沉默的后端，
+  比一个报错的后端难查得多。
+
+**2. 10 个 `.meta` 的 importer 段换行是坏的。**
+
+上一版批量生成 `Configs/` 下的 `.meta` 时把 `\n` 写成了**字面量** `/n`，
+于是文件里成了 `TextScriptImporter:/n  externalObjects: {}`。
+文件看着"有内容"，Unity 却解析不出导入设置段——这类问题不会让任何东西立刻报错，
+只会让资产的导入参数悄悄丢掉、或在别人的工程里拿到另一个 GUID。
+
+已全部修复，并新增门禁第 8 条（`check_meta_files`）：每个资产都必须有 `.meta`、
+importer 段必须真的换行、`guid` 必须是合法的 32 位十六进制。
+
+**3. 新增 Qwen-Image-2.1 路线（并行，非替代）**
+
+- `Configs/comfyui/charforge_qwen21_txt2img.workflow.json`
+  —— 从**官方模板的 subgraph 展开**成的扁平 API 格式。官方模板把整条生成链包在
+  一个 subgraph 节点里，而 **subgraph 无法直接提交给 `/prompt`**，硬提交只会得到
+  一个含糊的报错；这是它和 SD1.5 工作流最大的形态差异。
+  其中的提示词增强器已剔除——那是**另一个 9B 模型**，官方默认开关是关的。
+- `charforge_qwen21_txt2img.bindings.json` —— **刻意不绑 `width` / `height`**：
+  节点保持 1024×1024，缩放交给 `FrameNormalizer`。因为 512×512 只有 26 万像素，
+  低于 Qwen 建议的 100 万像素下限一个数量级，逼它出 512 会明显掉质量。
+- `Configs/comfyui/qwen_image_21.md` —— 16 GB 档位的权重组合（关键：**7B 主干不是全部，
+  文本编码器是另一个 8B 模型**，BF16 下两者相加 30.8 GB 根本进不去 16 GB）、
+  许可（Qwen Research License，**仅限非商用**）、采样参数（`cfg=1.0`，
+  此档位下负向提示词不生效属正常）、以及**它现在还做不了四向一致性**
+  （Fun-ControlNet-Union 的 ComfyUI 支持仍在 PR review 中）这一硬限制。
+
+原生 RGBA 与现有链路是干净对接的：`LocalMatting` 检测到图里已有 alpha 会**原样放行**，
+不会去覆盖掉模型自己产出的透明度。
+
+门禁：pytest 18/18、API 误用 0（25 个文件）、结构 0、示例 2/2。
+
+---
+
 ## [0.3.0] — 2026-10-11
 
 ### W2 · 接通真实生成链路，并补掉四处「不报错但结果不对」的断点

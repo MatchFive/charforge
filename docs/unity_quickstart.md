@@ -40,7 +40,7 @@
 
 ### 装完应该看到什么
 
-- Package Manager 出现 **CharForge 2D Character Pipeline** `0.3.0`
+- Package Manager 出现 **CharForge 2D Character Pipeline** `0.3.1`
 - 顶部菜单多出 **`Window > CharForge 角色资产生成`**
 - **Console 没有红色报错**
 
@@ -114,10 +114,13 @@ Assets/CharForge/<job_id>/
 | `没有解析到任何切片` | manifest 坐标与贴图不匹配 | 用占位后端复现一次并把 `manifest.json` 发我 |
 | prefab 进场景**悬空 / 陷进地面** | 脚底锚点对齐问题 | **W3 范围**，属已知待打磨项 |
 | 碰撞体明显盖住角色 / 横向偏到一侧 | v0.2.3 之前，包围盒取自缩放前的源图空间（偏大 `1/scale`≈17%，且横向中心错位） | v0.2.3 起改为按画布落位求并集，重新生成即可；已产出的 prefab 需重跑 |
+| 出图与角色描述**毫不相干**（像模型不行） | 提示词没写进节点。`CLIPTextEncode` 的字段叫 `text`，而 Qwen 的 `TextEncodeQwenImage21` 叫 `prompt`/`negative_prompt`，且正负在**同一节点**上——往不存在的键赋值不会报错，只会静默丢弃 | v0.3.1 起字段名改为候选探测并会在日志里明确告警。若仍出现，在 `.bindings.json` 里加 `positive_input` / `negative_input` |
+| ComfyUI 工作流加载后**整片节点缺失** | 用了官方模板，而它把生成链包在 **subgraph** 里，subgraph 不能被 `/prompt` 直接提交 | 用 `Configs/comfyui/` 下已展开成扁平 API 格式的工作流；或自行从官方模板展开 |
+| 换了后端后 `.meta` 的导入设置丢失 / GUID 变了 | `.meta` 里 importer 段落没换行（写成了字面量 `/n`） | v0.3.1 起已修并加入门禁第 8 条；若自行手写 `.meta`，注意换行必须是真换行 |
 
 > 上表里标「不该再出现」的几条，是已经修掉的历史问题。若仍然报出来，多半是
 > Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
-> 或确认 Package Manager 里的版本号是 `0.3.0`（或更高）。
+> 或确认 Package Manager 里的版本号是 `0.3.1`（或更高）。
 
 ### 怎么判断是「旧错误残留」还是「真的还在报」
 

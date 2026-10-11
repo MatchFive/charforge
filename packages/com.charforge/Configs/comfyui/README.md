@@ -6,6 +6,9 @@
 - `charforge_sd15_txt2img.workflow.json` —— **第一步先跑这个**。只有核心节点，零额外依赖。
 - `charforge_sd15_controlnet.workflow.json` —— **第二步**。加了 ControlNet OpenPose，
   姿势由骨架图锁定，这是四向一致性的真正来源。核心节点，同样不需要装自定义节点。
+- `charforge_qwen21_txt2img.workflow.json` —— **另一条路线**：Qwen-Image-2.1，原生 RGBA 透明通道、
+  直接吃中文提示词。**但它现在补不上"四向一致性"**（ControlNet 尚未并入稳定版），
+  所以定位是并行路线而非替代。上下车之前请先读 **`qwen_image_21.md`**。
 - `*.bindings.json` —— 告诉插件「哪个节点是正向提示词、哪个是种子」。**必须和工作流同名同目录**，
   插件按 `<工作流文件名>.bindings.json` 去找。
 

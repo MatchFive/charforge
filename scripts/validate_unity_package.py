@@ -12,6 +12,7 @@
 6. package.json 合法，且声明的 dependencies 与 asmdef 的硬引用不矛盾。
 7. **C# 里引用的 uxml/uss 路径真实存在**（UPM 虚拟路径与仓库目录名不是一回事，
    写错在 Unity 里是静默失败：窗口照常打开，只是样式丢失）。
+8. **每个资产都有 .meta，且 .meta 的 importer 段真的换行** —— 见下方 check_meta_files。
 """
 
 from __future__ import annotations
@@ -215,6 +216,46 @@ def check_package_json(asmdefs: dict[Path, dict]) -> None:
           f"依赖 {len(deps)} 项")
 
 
+# .meta 的 importer 段必须**真的换行**。把 "\n" 写成字面量 "/n" 是手写或用脚本批量生成
+# .meta 时最容易犯的错：文件看着"有内容"，Unity 却解析不出导入设置段，
+# 表现为资产导入参数丢失，或 GUID 被重新分配导致引用漂移。
+# 肉眼几乎看不出来，所以只能靠 CI。
+META_BROKEN_IMPORTER = re.compile(r"^[A-Za-z0-9_]*Importer:/n", re.M)
+META_GUID = re.compile(r"^guid: ([0-9a-f]{32})$", re.M)
+
+
+def _meta_assets():
+    """包内应当带 .meta 的资产（目录与文件）；排除包根、obj 缓存与 ~ 结尾的忽略目录。"""
+    for path in sorted(PKG.rglob("*")):
+        if path == PKG or path.suffix == ".meta":
+            continue
+        if "obj" in path.parts or "~" in path.name:
+            continue
+        yield path
+
+
+def check_meta_files() -> None:
+    """每个资产都要有 .meta，且 .meta 本身必须是可解析的头部。
+
+    这一条拦的是"肉眼看不出来、但在用户工程里会慢慢发作"的问题：缺 meta 时 Unity
+    会自行补一个随机 GUID，于是同一份资产在两个人的工程里 GUID 不同，引用随之漂移。
+    """
+    total = 0
+    for path in _meta_assets():
+        total += 1
+        rel = path.relative_to(PKG.parent).as_posix()
+        meta = path.with_name(path.name + ".meta")
+        if not meta.exists():
+            fail(f"缺少 .meta：{rel}.meta —— Unity 会自行补随机 GUID，引用会漂移")
+            continue
+        text = meta.read_text(encoding="utf-8", errors="replace")
+        if META_BROKEN_IMPORTER.search(text):
+            fail(f".meta 的 importer 段没换行（写成了字面量 /n）：{rel}.meta")
+        elif not META_GUID.search(text):
+            fail(f".meta 缺少合法 guid（应为 32 位十六进制）：{rel}.meta")
+    print(f"  .meta：{total} 个资产逐一带 meta 校验")
+
+
 def main() -> int:
     if not PKG.exists():
         print(f"找不到包目录：{PKG}")
@@ -228,6 +269,7 @@ def main() -> int:
     check_asmdef_references(asmdefs)
     check_cs_files(asmdefs)
     check_package_json(asmdefs)
+    check_meta_files()
 
     for w in warnings:
         print(f"  提醒：{w}")

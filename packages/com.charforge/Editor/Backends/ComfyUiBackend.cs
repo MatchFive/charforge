@@ -24,7 +24,17 @@ namespace CharForge.EditorTools.Backends
     /// <code>
     /// { "positive": "6", "negative": "7", "seed": "3", "width": "5", "height": "5", "load_image": "10" }
     /// </code>
-    /// 绑定文件缺失时会退化为启发式：取第一个 <c>CLIPTextEncode</c> 为正向、第二个为负向。
+    /// 绑定文件缺失时会退化为启发式：找出 class_type 含 <c>TextEncode</c> 的节点，按 id 排序取前两个。
+    ///
+    /// **提示词字段名不能写死。** SD1.5/SDXL 的 <c>CLIPTextEncode</c> 用 <c>text</c>，且正负是两个节点；
+    /// 而 Qwen-Image 2.1 的 <c>TextEncodeQwenImage21</c> 用 <c>prompt</c> / <c>negative_prompt</c>，
+    /// 正负在**同一个节点**上。字段名对不上时写进去的键不存在，提示词等于没写而且不报错，
+    /// 表现成"出图跟角色描述无关"。因此：
+    /// <list type="bullet">
+    ///   <item>绑定文件可用 <c>positive_input</c> / <c>negative_input</c> 显式指定字段名；</item>
+    ///   <item>不指定时按 <c>text → prompt → prompt_text</c>（负向：<c>text → negative_prompt → prompt</c>）
+    ///     逐个探测，命中即写。</item>
+    /// </list>
     /// 启发式只保证"能跑"，要精确请写绑定文件——这比在 C# 里猜节点语义可靠得多。
     /// </summary>
     public class ComfyUiBackend : IInferenceBackend
@@ -137,7 +147,12 @@ namespace CharForge.EditorTools.Backends
 
             var bindings = WorkflowBindings.Load(WorkflowApiJsonPath);
             var workflow = JObject.Parse(await ReadAllTextAsync(WorkflowApiJsonPath, ct).ConfigureAwait(false));
-            bindings.Apply(workflow, request);
+
+            // 绑定解析（含"找不到提示词节点"）与提示词注入都可能出问题，两者都必须说出来。
+            // 这里刻意不写成 if (ok) ——"提示词没进去"的症状是出图与描述无关，
+            // 看起来像模型不行，只有把原因报出来才不会被误判。
+            foreach (var w in bindings.Apply(workflow, request)) Warn(w);
+
             await ApplyPoseTemplateAsync(workflow, bindings, request, ct).ConfigureAwait(false);
 
             string promptId = await SubmitAsync(workflow, ct).ConfigureAwait(false);
@@ -301,6 +316,21 @@ namespace CharForge.EditorTools.Backends
             public string Height;
             public string LoadImage;
 
+            /// <summary>
+            /// 提示词字段名。**不能写死成 text**：CLIPTextEncode（SD1.5/SDXL）用 <c>text</c>，
+            /// 而 Qwen-Image 2.1 的 TextEncodeQwenImage21 用 <c>prompt</c> / <c>negative_prompt</c>，
+            /// 且正负提示词挂在**同一个节点**上。写死 text 的后果是：换成 Qwen 工作流后
+            /// 提示词一个字都进不去，而且不报错——本项目反复踩的就是这类"静默失效"。
+            /// </summary>
+            public string PositiveInput;
+            public string NegativeInput;
+
+            /// <summary>Load 阶段产生的告警（启发式解析不出提示词节点时）。</summary>
+            private readonly List<string> _loadWarnings = new List<string>();
+
+            private static readonly string[] PositiveKeyCandidates = { "text", "prompt", "prompt_text" };
+            private static readonly string[] NegativeKeyCandidates = { "text", "negative_prompt", "prompt" };
+
             public static WorkflowBindings Load(string workflowPath)
             {
                 string bindPath = Path.Combine(
@@ -313,7 +343,9 @@ namespace CharForge.EditorTools.Backends
                     return new WorkflowBindings
                     {
                         Positive = (string)j["positive"],
+                        PositiveInput = (string)j["positive_input"],
                         Negative = (string)j["negative"],
+                        NegativeInput = (string)j["negative_input"],
                         Seed = (string)j["seed"],
                         Width = (string)j["width"],
                         Height = (string)j["height"],
@@ -321,39 +353,122 @@ namespace CharForge.EditorTools.Backends
                     };
                 }
 
-                // 启发式：取前两个 CLIPTextEncode。顺序按节点 id 数值排序，保证结果稳定可预期。
+                return Infer(workflowPath);
+            }
+
+            /// <summary>
+            /// 没有 bindings 文件时的启发式。**只保证"能跑"**，所以宁可猜得宽一点。
+            ///
+            /// 关键点是两类节点的形态根本不同，不能只认 CLIPTextEncode：
+            /// <list type="bullet">
+            ///   <item><c>CLIPTextEncode</c> —— 正向、负向各一个节点，字段都叫 <c>text</c>；</item>
+            ///   <item><c>TextEncodeQwen*</c> —— 一个节点同时持有 <c>prompt</c> 与 <c>negative_prompt</c>。</item>
+            /// </list>
+            /// 因此按 id 排序取前两个节点，并额外识别"单节点双提示词"这种形态。
+            /// 解析不出来时**要留一条告警**——否则表现就是"出图与角色描述无关"，
+            /// 会被错判成模型或提示词的问题。
+            /// </summary>
+            private static WorkflowBindings Infer(string workflowPath)
+            {
                 var inferred = new WorkflowBindings();
+                var textNodes = new List<(int order, string id, bool dual)>();
+
                 try
                 {
                     var wf = JObject.Parse(File.ReadAllText(workflowPath));
-                    var textNodes = new List<(int order, string id)>();
                     foreach (var p in wf.Properties())
                     {
-                        if ((string)p.Value?["class_type"] == "CLIPTextEncode")
-                            textNodes.Add((int.TryParse(p.Name, out var n) ? n : int.MaxValue, p.Name));
+                        string cls = (string)p.Value?["class_type"];
+                        if (string.IsNullOrEmpty(cls) || !cls.Contains("TextEncode")) continue;
+
+                        bool dual = p.Value?["inputs"]?["negative_prompt"] != null;
+                        textNodes.Add((int.TryParse(p.Name, out var n) ? n : int.MaxValue, p.Name, dual));
                     }
-                    textNodes.Sort((a, b) => a.order.CompareTo(b.order));
-                    if (textNodes.Count > 0) inferred.Positive = textNodes[0].id;
-                    if (textNodes.Count > 1) inferred.Negative = textNodes[1].id;
                 }
-                catch { /* 解析失败就让调用方报出明确错误 */ }
+                catch { /* 解析失败留给调用方报出明确错误 */ }
+
+                textNodes.Sort((a, b) => a.order.CompareTo(b.order));
+
+                if (textNodes.Count == 0)
+                {
+                    inferred._loadWarnings.Add(
+                        "这份 workflow 里找不到文本编码节点（class_type 含 TextEncode 的一个都没有）。" +
+                        "提示词不会被写进去，出图将与角色描述无关。请确认导出的是 API 格式，" +
+                        "或在同名 .bindings.json 里用 positive / negative 显式指定节点 id。");
+                    return inferred;
+                }
+
+                var first = textNodes[0];
+                inferred.Positive = first.id;
+                inferred.PositiveInput = first.dual ? "prompt" : null;
+
+                if (textNodes.Count > 1)
+                {
+                    inferred.Negative = textNodes[1].id;
+                }
+                else if (first.dual)
+                {
+                    // Qwen：正负同节点，但负向字段名与正向不同。
+                    inferred.Negative = first.id;
+                    inferred.NegativeInput = "negative_prompt";
+                }
+
                 return inferred;
             }
 
-            public void Apply(JObject workflow, FrameRequest req)
+            /// <summary>把提示词/种子/尺寸写进工作流；返回需要上报的告警（可能为空）。</summary>
+            public List<string> Apply(JObject workflow, FrameRequest req)
             {
-                SetText(workflow, Positive, req.PositivePrompt);
-                if (!string.IsNullOrEmpty(Negative)) SetText(workflow, Negative, req.NegativePrompt);
+                var warnings = new List<string>(_loadWarnings);
+
+                if (!SetText(workflow, Positive, req.PositivePrompt, PositiveInput, PositiveKeyCandidates))
+                {
+                    warnings.Add(
+                        $"没能把提示词写进节点 {Positive ?? "(未指定)"}：" +
+                        "该节点既没有 text 也没有 prompt / prompt_text 字段。" +
+                        "请确认 workflow 是 API 格式，或在 .bindings.json 里加 positive_input 指明字段名。");
+                }
+
+                if (!string.IsNullOrEmpty(Negative))
+                {
+                    SetText(workflow, Negative, req.NegativePrompt, NegativeInput, NegativeKeyCandidates);
+                }
+
                 SetValue(workflow, Seed, req.Seed >= 0 ? req.Seed : new System.Random().Next(1, int.MaxValue));
                 SetValue(workflow, Width, req.Width);
                 SetValue(workflow, Height, req.Height);
+                return warnings;
             }
 
-            private static void SetText(JObject wf, string nodeId, string value)
+            /// <summary>
+            /// 按「显式字段名 → 候选名」的顺序把文本写进节点，成功返回 true。
+            ///
+            /// 返回 bool 而不是无声返回，是为了让调用方能区分「写进去了」和「这个节点压根没有
+            /// 提示词字段」——后者正是 Qwen 工作流配 CLIPTextEncode 假设时的实际情形。
+            /// </summary>
+            private static bool SetText(
+                JObject wf, string nodeId, string value, string explicitKey, string[] candidates)
             {
-                if (string.IsNullOrEmpty(nodeId) || value == null) return;
+                if (string.IsNullOrEmpty(nodeId) || value == null) return false;
+
                 var inputs = wf[nodeId]?["inputs"];
-                if (inputs != null) inputs["text"] = value;
+                if (inputs == null) return false;
+
+                if (!string.IsNullOrEmpty(explicitKey))
+                {
+                    if (inputs[explicitKey] == null) return false;
+                    inputs[explicitKey] = value;
+                    return true;
+                }
+
+                foreach (var key in candidates)
+                {
+                    if (inputs[key] == null) continue;
+                    inputs[key] = value;
+                    return true;
+                }
+
+                return false;
             }
 
             private static void SetValue(JObject wf, string nodeId, int value)

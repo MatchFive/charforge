@@ -1,0 +1,13 @@
+{
+  "positive": "4",
+  "positive_input": "prompt",
+  "negative": "4",
+  "negative_input": "negative_prompt",
+  "seed": "6",
+
+  "_note_width_height": "刻意不绑 width/height。节点 5 保持 1024x1024，让 FrameNormalizer 缩到 512 画布——Qwen 在 512 上低于它 1M 像素的训练区间，直接生成会掉质量。绑上 width/height 就等于逼它用 512 出图。",
+
+  "_note_negative_inert": "cfg=1.0 是 Flow Matching 的标配，此档位下 negative_prompt 不生效（官方工作流也留空）。这里仍然绑上，是为了你把 cfg 调高时负向能立即起作用。",
+
+  "_note_no_load_image": "本工作流不含 ControlNet，所以没有 load_image 绑定——姿势锁定靠另接 Qwen-Image-2.1-Fun-ControlNet-Union，其 ComfyUI 支持尚未并入稳定版，详见 qwen_image_21.md。"
+}
