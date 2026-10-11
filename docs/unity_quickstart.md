@@ -117,6 +117,35 @@ Assets/CharForge/<job_id>/
 > Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
 > 或确认 Package Manager 里的版本号是 `0.2.2`。
 
+### 怎么判断是「旧错误残留」还是「真的还在报」
+
+Unity 的 Console **不会自己清掉上一次失败的编译结果**：脚本改了、但编辑器还没有重新编译时，
+面板上仍是上一轮的报错。同一段错误来回报两次，多半就是这种情况。
+
+三个判据，从上往下依次做：
+
+1. **看行号对不对得上。** 报错行号若指向的内容和当前源码不符（例如报 `FrameNormalizer.cs(161)`
+   是 `FilterMode.Box`，而文件里这一行早已不是），那这条错误就来自旧版本文件——属于残留。
+2. **看 Console 里错误条目的时间戳**，和源码最后修改时间比。错误早于改动 = 残留。
+3. **查 Unity 自己的编译日志**（最硬的证据）：
+
+   ```
+   <你的工程>/Logs/Editor.log
+   ```
+
+   搜 `Script Compilation Error`，看**最后一条**是哪一轮；再看它之后有没有新的
+   `Requested script compilation` + `CompileScripts:` 且**不带** Error 块。
+   有没有编译成功，还可以看产物时间戳：
+
+   ```
+   <你的工程>/Library/ScriptAssemblies/CharForge.Editor.dll
+   ```
+
+   编译失败时 Unity 不会写出这个 DLL；它的时间戳晚于源码改动，即说明这一轮是成功的。
+
+**处理动作**：Console 右键 `Clear`，然后 `Ctrl+R`（或切到别的窗口再切回来）触发重编译。
+不要因为面板上留着旧条目就去改已经正确的代码。
+
 ---
 
 ## 4. 第二次运行：换成文博场景（体现学术严谨）
