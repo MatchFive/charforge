@@ -1,0 +1,31 @@
+name: 像素风
+description: 8/16-bit 像素风角色。适合横版与俯视 RPG。注意 pixel_grid 必须与目标分辨率匹配。
+
+positive:
+  - pixel art
+  - 16-bit sprite
+  - clean pixel cluster
+  - limited color palette
+  - hard edges
+  - no anti-aliasing
+  - full body sprite
+
+negative:
+  - anti-aliasing
+  - blurry edges
+  - soft gradient
+  - photorealistic
+  - 3d render
+  - smooth shading
+  - glossy highlight
+
+lora: null
+lora_scale: 0.8
+
+# 512 画布 → 64x64 像素风 = 8 倍
+pixel_grid: 8
+
+suggested:
+  steps: 30
+  guidance_scale: 7.0
+  clip_skip: 2

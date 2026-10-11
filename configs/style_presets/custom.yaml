@@ -1,0 +1,20 @@
+# 默认预设：不预设画风，完全由参考图决定。
+# 找不到对应预设时，prompt_forge 会回落到这里的空值并使用内置兜底词。
+
+name: 自定义
+description: 不预设画风，画风完全由项目参考图（IP-Adapter）决定。
+
+positive: []
+negative: []
+
+lora: null
+lora_scale: 0.8
+
+# 归一化时的像素网格倍数。1 表示不做像素量化（高清手绘/矢量风）。
+pixel_grid: 1
+
+# 生成参数建议值（骨架阶段仅供参考，真实参数在你的适配器里定）
+suggested:
+  steps: 28
+  guidance_scale: 6.0
+  clip_skip: 2

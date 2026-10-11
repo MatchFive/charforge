@@ -1,0 +1,36 @@
+name: 文博展陈风
+description: 面向博物馆数字展陈与社教内容的角色风格。要求端庄、可考、配色克制。
+
+positive:
+  - refined illustration for museum exhibition
+  - traditional Chinese painting influence
+  - restrained color palette
+  - ink wash texture
+  - confident clean lineart
+  - dignified posture
+  - historically accurate costume
+  - soft even lighting
+  - full body
+
+negative:
+  - modern clothing
+  - plastic texture
+  - neon color
+  - exaggerated anime style
+  - fanservice
+  - chibi
+  - photorealistic
+  - 3d render
+  - modern accessories
+  - logos
+  - brand marks
+
+lora: null
+lora_scale: 0.8
+
+pixel_grid: 1
+
+suggested:
+  steps: 30
+  guidance_scale: 5.5
+  clip_skip: 2

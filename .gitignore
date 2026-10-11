@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 生成产物（绝不入库）
+out/
+outputs/
+*.job/
+assets/generated/
+
+# 模型权重（本地缓存，不入库）
+models/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pth
+*.onnx
+
+# 环境与密钥（关键：API key 绝不能入库）
+.env
+.env.local
+*.key
+secrets/
+
+# Unity
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+*.csproj
+*.sln
+*.unitypackage
+
+# 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

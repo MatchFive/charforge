@@ -1,0 +1,32 @@
+# 示例一：游戏向 —— 小镇杂货店主
+# 演示重点：会用巡逻、能对话、有明确外观设定的普通 NPC。
+
+name: 石伯
+role: 小镇杂货店主
+
+prompt: 一位五十岁出头的小镇杂货店主，圆脸，戴布帽，穿洗得发白的靛蓝围裙，袖子卷到手肘，神态爽朗健谈
+
+style_preset: hand_drawn
+era_or_period: null
+
+forbidden:
+  - modern sunglasses
+  - plastic bag
+  - brand logo
+  - smart phone
+
+reference_notes: null
+
+directions: [south, north]
+actions: [idle, walk]
+frames_per_clip: 4
+
+movement:
+  mode: astar
+  speed: 1.5
+  patrol_points:
+    - [0.0, 0.0]
+    - [2.5, 0.0]
+    - [2.5, -1.5]
+
+dialogue: true

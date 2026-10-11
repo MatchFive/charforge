@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charforge.dev/schemas/sprite_manifest.schema.json",
+  "title": "CharForge 切片清单",
+  "description": "out/<job_id>/manifest.json 的结构。Unity 侧 SpriteImportSetup 读它来写贴图导入设置。",
+  "type": "object",
+  "required": ["job_id", "sheet", "sprites"],
+  "properties": {
+    "job_id": { "type": "string" },
+    "sheet": {
+      "type": "object",
+      "required": ["path", "cell_width", "cell_height", "columns", "rows", "frame_count"],
+      "properties": {
+        "path": { "type": "string", "description": "sheet PNG 的路径（服务端视角，可能是绝对路径）" },
+        "cell_width": { "type": "integer", "minimum": 1 },
+        "cell_height": { "type": "integer", "minimum": 1 },
+        "columns": { "type": "integer", "minimum": 1 },
+        "rows": { "type": "integer", "minimum": 1 },
+        "frame_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sprites": {
+      "type": "array",
+      "description": "每个切片的矩形与锚点。y 为 Unity 左下原点坐标，Unity 侧直接填，不要再翻转。",
+      "items": {
+        "type": "object",
+        "required": ["name", "x", "y", "w", "h"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "形如 south_walk_00。末段必须是两位帧号——装配时会靠它排序。"
+          },
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "w": { "type": "integer", "minimum": 1 },
+          "h": { "type": "integer", "minimum": 1 },
+          "pivot_x": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+          "pivot_y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0,
+            "description": "锚点。2D 角色一般为 0（脚底），这是角色不悬空的关键。"
+          }
+        }
+      }
+    },
+    "pixels_per_unit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 100,
+      "description": "与项目其它素材保持一致，否则角色视觉尺寸会不对。"
+    },
+    "filter_mode": { "enum": ["Point", "Bilinear", "Trilinear"], "default": "Bilinear" },
+    "alpha_is_transparency": { "type": "boolean", "default": true },
+    "texture_type": { "enum": ["Sprite", "Default"], "default": "Sprite" }
+  }
+}

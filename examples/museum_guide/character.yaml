@@ -1,0 +1,42 @@
+# 示例二：文博向 —— 博物馆虚拟讲解员
+# 演示重点：年代形制约束 + 考据要点注入人设（防史实硬伤）+ 克制配色。
+
+name: 云叔
+role: 博物馆导览讲解员
+
+prompt: 一位四十余岁的博物馆讲解员，身着素雅青灰色中式长衫，外罩浅褐对襟褂，手持讲解册，神情温和而笃定
+
+style_preset: museum_guide
+
+# 年代/形制约束。会进入提示词，也会进入人设的说话要求。
+era_or_period: 南宋
+
+forbidden:
+  - modern glasses
+  - watch
+  - plastic material
+  - neon color
+  - brand logo
+  - modern footwear
+
+# 由藏品档案检索（RAG）得到的形制要点。
+# 这一步是文博场景的关键：把「学术约束」变成生成与对话的硬边界，
+# 避免出现「宋代器型画成明代样式」这类硬伤。
+reference_notes: |
+  本馆常设展「宋韵」单元重点器物：龙泉窑青瓷莲瓣纹碗（敞口、深腹、圈足，外壁刻莲瓣）、
+  建窑黑釉兔毫盏（束口、斜壁，釉面析晶呈兔毫纹）、湖州镜（葵瓣形，背铸商号铭文）。
+  讲解时须区分「龙泉窑」与「越窑」的地域与年代差异；不得将元代器型特征用于本单元讲解。
+  服饰形制参照宋代直领对襟、交领右衽，禁用立领与盘扣。
+
+directions: [south, north, east, west]
+actions: [idle, walk]
+frames_per_clip: 4
+
+movement:
+  mode: astar
+  speed: 1.2
+  patrol_points:
+    - [0.0, 0.0]
+    - [3.0, 0.0]
+
+dialogue: true

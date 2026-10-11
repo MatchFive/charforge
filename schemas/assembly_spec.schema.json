@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charforge.dev/schemas/assembly_spec.schema.json",
+  "title": "CharForge 装配指令",
+  "description": "out/<job_id>/assembly_spec.json 的结构。Unity 侧 PrefabAssembler 读它来施工。改这个文件比改代码快。",
+  "type": "object",
+  "required": ["job_id", "prefab_name", "character_card", "animations"],
+  "properties": {
+    "job_id": { "type": "string" },
+    "prefab_name": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+    "character_card": {
+      "type": "object",
+      "required": ["job_id", "name", "role"],
+      "properties": {
+        "job_id": { "type": "string" },
+        "source_prompt": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "personality": { "type": "array", "items": { "type": "string" } },
+        "appearance": { "type": "string" },
+        "palette": { "type": "array", "items": { "type": "string" } },
+        "silhouette_notes": { "type": "string" },
+        "forbidden": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "enum": ["idle", "walk"] } },
+        "directions": { "type": "array", "items": { "enum": ["south", "north", "east", "west"] } },
+        "style_tags": { "type": "array", "items": { "type": "string" } },
+        "era_or_period": { "type": ["string", "null"] },
+        "reference_notes": { "type": ["string", "null"] }
+      }
+    },
+    "animations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "direction", "action", "sprites"],
+        "properties": {
+          "name": { "type": "string", "description": "如 south_walk" },
+          "direction": { "enum": ["south", "north", "east", "west"] },
+          "action": { "enum": ["idle", "walk"] },
+          "sprites": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "按帧顺序排列的切片名。顺序错了动画就会倒放。"
+          },
+          "frame_rate": { "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
+          "loop": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    "collider": {
+      "type": "object",
+      "properties": {
+        "shape": { "enum": ["circle", "box", "capsule"], "default": "capsule" },
+        "radius": { "type": "number", "default": 0.3 },
+        "size": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "offset": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+      }
+    },
+    "movement": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["none", "rigidbody", "astar", "navmesh"], "default": "none" },
+        "speed": { "type": "number", "default": 1.5 },
+        "patrol_points": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        },
+        "arrive_threshold": { "type": "number", "default": 0.1 }
+      }
+    },
+    "dialogue": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "provider": { "enum": ["llm-unity", "http", "none"], "default": "none" },
+        "persona_path": { "type": ["string", "null"] },
+        "max_tokens": { "type": "integer", "default": 160 }
+      }
+    },
+    "aes_label": {
+      "type": "object",
+      "description": "AIGC 显式标识的占位配置。具体展示方式由游戏侧决定。",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "text": { "type": "string", "default": "本内容由人工智能生成" },
+        "placement": { "enum": ["corner", "bottom", "startup"], "default": "corner" }
+      }
+    }
+  }
+}

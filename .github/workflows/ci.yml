@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: 服务端（lint + 单测）
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: 类型检查
+        run: mypy server || true
+
+      - name: 单测（mock 后端，全链路冒烟）
+        env:
+          CHARFORGE_BACKEND: mock
+        run: pytest -q
+
+  unity-package:
+    name: Unity 包结构校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 package.json 必需字段
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path("packages/com.charforge/package.json")
+          d = json.loads(p.read_text(encoding="utf-8"))
+          missing = [k for k in ("name", "version", "unity", "displayName") if k not in d]
+          if missing:
+              print("缺少必需字段:", missing)
+              sys.exit(1)
+          if not d["name"].startswith("com."):
+              print("UPM 包名须以 com. 开头:", d["name"])
+              sys.exit(1)
+          print("package.json 校验通过:", d["name"], d["version"])
+          PY
+
+      - name: 校验 Editor / Runtime 目录存在
+        run: |
+          test -d packages/com.charforge/Editor
+          test -d packages/com.charforge/Runtime
+
+  schema:
+    name: JSON Schema 校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema pyyaml
+      - name: 校验示例配置符合 schema
+        run: python scripts/validate_examples.py

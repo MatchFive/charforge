@@ -1,0 +1,29 @@
+name: 手绘插画
+description: 手绘/赛璐璐风格的 2D 角色，适合叙事类与视觉小说。
+
+positive:
+  - hand drawn illustration
+  - clean lineart
+  - cel shading
+  - flat color with soft shadow
+  - consistent line weight
+  - character design sheet
+  - full body
+
+negative:
+  - pixel art
+  - 3d render
+  - photorealistic
+  - sketchy lines
+  - inconsistent style
+  - heavy texture
+
+lora: null
+lora_scale: 0.8
+
+pixel_grid: 1
+
+suggested:
+  steps: 28
+  guidance_scale: 6.0
+  clip_skip: 2

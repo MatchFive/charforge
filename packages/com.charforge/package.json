@@ -1,0 +1,29 @@
+{
+  "name": "com.charforge.unity2d",
+  "version": "0.1.0",
+  "displayName": "CharForge 2D Character Pipeline",
+  "description": "从一句话角色描述与项目画风参考图，生成可直接使用的 Unity 2D NPC prefab：自动导入切片、生成 Animator、配置碰撞与寻路，并挂载人设与对话组件。",
+  "unity": "2021.3",
+  "unityRelease": "0f1",
+  "documentationUrl": "https://github.com/your-name/unity2d-charforge",
+  "changelogUrl": "https://github.com/your-name/unity2d-charforge/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/your-name/unity2d-charforge/blob/main/LICENSE",
+  "keywords": [
+    "2d",
+    "npc",
+    "character",
+    "ai",
+    "sprite",
+    "pipeline",
+    "generation"
+  ],
+  "author": {
+    "name": "Your Name",
+    "url": "https://github.com/your-name"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.editorcoroutines": "1.0.0"
+  },
+  "samples": []
+}

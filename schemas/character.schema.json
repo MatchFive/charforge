@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charforge.dev/schemas/character.schema.json",
+  "title": "CharForge 角色需求卡",
+  "description": "examples/<name>/character.yaml 的结构。描述「要生成一个什么样的角色」，不是生成结果。",
+  "type": "object",
+  "required": ["name", "role", "prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24,
+      "description": "角色名。会用于 prefab 名与切片名，建议简短且无空格。"
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "身份，如「博物馆导览讲解员」。人设提示词会用。"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 4,
+      "description": "一句自然语言描述。这是喂给 [1] Prompt Forge 的原始输入。"
+    },
+    "style_preset": {
+      "type": "string",
+      "default": "custom",
+      "description": "configs/style_presets/ 下的预设名（不含 .yaml）。"
+    },
+    "era_or_period": {
+      "type": ["string", "null"],
+      "description": "年代/形制约束（文博场景）。会进入提示词与说话要求。"
+    },
+    "forbidden": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "禁止出现的元素。会转成 negative prompt 与人设的禁止项。"
+    },
+    "reference_notes": {
+      "type": ["string", "null"],
+      "description": "形制/考据要点，来自藏品档案检索。为空则人设不含知识边界约束。"
+    },
+    "directions": {
+      "type": "array",
+      "items": { "enum": ["south", "north", "east", "west"] },
+      "default": ["south"],
+      "minItems": 1,
+      "description": "要生成的方向。数量直接决定成本——四向 = 成本 ×4。"
+    },
+    "actions": {
+      "type": "array",
+      "items": { "enum": ["idle", "walk"] },
+      "default": ["idle", "walk"],
+      "minItems": 1
+    },
+    "frames_per_clip": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 8,
+      "default": 4,
+      "description": "每个「方向 × 动作」的帧数。"
+    },
+    "movement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["none", "rigidbody", "astar", "navmesh"], "default": "none" },
+        "speed": { "type": "number", "minimum": 0.1, "maximum": 20, "default": 1.5 },
+        "patrol_points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "default": [],
+          "description": "相对于 prefab 原点的巡逻点，运行时转世界坐标。"
+        }
+      }
+    },
+    "dialogue": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否生成人设文件并在 prefab 上启用对话组件。"
+    }
+  }
+}
