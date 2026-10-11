@@ -42,7 +42,7 @@ namespace CharForge.EditorTools.Services
             new PipelineResult { Ok = false, Message = message, NextAction = nextAction };
 
         /// <summary>把流水线途中累积的提示挂到结果上，交给界面显示。</summary>
-        private static PipelineResult WithWarnings(PipelineResult result, List<string> warnings)
+        public static PipelineResult WithWarnings(PipelineResult result, List<string> warnings)
         {
             if (warnings != null && warnings.Count > 0)
             {
@@ -318,7 +318,7 @@ namespace CharForge.EditorTools.Services
             }
 
             if (placed.Count == 0)
-                return WithWarnings(
+                return PipelineResult.WithWarnings(
                     PipelineResult.Fail("一帧都没生成出来。", "先用占位后端验证链路，再排查具体后端的出图问题。"),
                     warnings);
 
@@ -376,7 +376,7 @@ namespace CharForge.EditorTools.Services
             report("assemble", 94f, "装配 prefab…");
             var assembly = await AssembleOnMainThreadAsync(outDir).ConfigureAwait(false);
 
-            return WithWarnings(new PipelineResult
+            return PipelineResult.WithWarnings(new PipelineResult
             {
                 Ok = assembly.ok,
                 Message = assembly.ok ? "完成" : "装配失败",

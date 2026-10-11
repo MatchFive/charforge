@@ -4,6 +4,40 @@
 
 ---
 
+## [0.2.4] — 2026-10-11
+
+### 修复 · 0.2.3 编译不过：跨类型裸调 private 成员（CS0103）
+
+0.2.3 的告警链路引入了 `PipelineResult.WithWarnings(...)`，但把它声明成了 `private static`，
+而调用方在**另一个顶级类型** `CharacterForgePipeline` 里：
+
+```
+…/Services/CharacterForgePipeline.cs(321,24): error CS0103: The name 'WithWarnings' does not exist in the current context
+…/Services/CharacterForgePipeline.cs(379,20): error CS0103: The name 'WithWarnings' does not exist in the current context
+```
+
+注意这条报错的**误导性**：它说的是"名称不存在"，而不是"private 不可访问"。原因是 C# 的
+简单名查找根本不会去兄弟类型里找，所以压根没到"检查可见性"那一步。看上去像"方法写了
+忘记保存"或"文件没编译"，实际是作用域问题——同类错误里最容易误判的一种。
+
+- `WithWarnings` 提升为 `public static`（与同类型的 `Fail` 保持一致），两处调用点补上
+  `PipelineResult.` 限定。
+- **新增静态检查规则 6「跨类型调非 public 成员」**，防止复发。它用行扫描状态机判断
+  「成员声明所属类型」与「调用点所属类型」，不依赖括号配对，因此对格式稳定、对字符串
+  与注释免疫；并会跳过调用方自己声明同名成员的合法遮蔽情形。
+  回归验证：对本条报错的修复前版本可**精确命中第 321、379 两行、零误报**，
+  对当前全仓 22 个 `.cs` 文件零命中。
+- 新增 `tests/test_csharp_lint.py`（5 个用例）：命中、限定后不再命中、同类内调用合法、
+  同名遮蔽不误报、以及**真实仓库零命中**。C# 侧的静态检查本身现在也有测试了——
+  此前它只是"没被测过的脚本"。
+
+### 说明
+
+0.2.3 的源码从未成功编译过，因此 0.2.4 才是本轮三处缺陷（碰撞体、warnings、文博输入）
+的可运行版本。版本号必须前进，否则无法在 Package Manager 里区分"是否拿到了修复"。
+
+---
+
 ## [0.2.3] — 2026-10-11
 
 ### 修复 · 首次真机跑通（W1）暴露的三处缺陷

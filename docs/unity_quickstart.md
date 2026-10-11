@@ -40,7 +40,7 @@
 
 ### 装完应该看到什么
 
-- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.3`
+- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.4`
 - 顶部菜单多出 **`Window > CharForge 角色资产生成`**
 - **Console 没有红色报错**
 
@@ -107,6 +107,7 @@ Assets/CharForge/<job_id>/
 | `CS0266 无法将 float 隐式转换为 int`（`FrameNormalizer`） | 用 `int` 承接 `Rect.xMin/xMax` | v0.2.2 起已改为 `float`，不该再出现 |
 | `CS0117 FilterMode 没有 Box 成员` | `UnityEngine.FilterMode` 只有 Point / Bilinear / Trilinear | v0.2.2 起改用自实现的按 alpha 加权盒式降采样，不该再出现 |
 | `CS1739 Kill 没有名为 entireProcessTree 的参数` | 工程 Api Compatibility Level 是 .NET Framework | v0.2.2 起改为反射 + `taskkill` 回退，**无需改工程设置**，不该再出现 |
+| `CS0103 名称 'Xxx' 不存在于当前上下文中`，而 Xxx 明明写了 | **可见性**问题，不是"忘保存"。Xxx 是**另一个类型**的 `private` 成员，被跨类型裸调 | v0.2.4 起已加静态规则拦截（`check_unity_api_misuse.py` 第 6 条）。改法是加类型限定 `A.Xxx(...)` 并把 Xxx 提为 `public` |
 | 警告 `CS0414 dialogueEndpoint 已赋值但未使用` | 序列化字段缺读取方 | v0.2.1 起已暴露 `DialogueEndpoint` 只读属性，警告消失 |
 | 窗口能开但**样式朴素、没有折叠面板** | UXML 未加载 | 看 Console 的 `[CharForge]` 警告，把路径贴给我（已改为动态解析，理论上不会出现） |
 | 提示「没有可用的推理后端」 | 选了「自动选择」但没配任何后端 | 切到「占位后端」 |
@@ -116,7 +117,7 @@ Assets/CharForge/<job_id>/
 
 > 上表里标「不该再出现」的几条，是已经修掉的历史问题。若仍然报出来，多半是
 > Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
-> 或确认 Package Manager 里的版本号是 `0.2.3`（或更高）。
+> 或确认 Package Manager 里的版本号是 `0.2.4`（或更高）。
 
 ### 怎么判断是「旧错误残留」还是「真的还在报」
 
