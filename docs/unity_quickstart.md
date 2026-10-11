@@ -146,6 +146,34 @@ Unity 的 Console **不会自己清掉上一次失败的编译结果**：脚本�
 **处理动作**：Console 右键 `Clear`，然后 `Ctrl+R`（或切到别的窗口再切回来）触发重编译。
 不要因为面板上留着旧条目就去改已经正确的代码。
 
+### 与 CharForge 无关的编辑器噪音：`NoSubscription`
+
+Console 里若反复刷这一条：
+
+```
+Error reason is 'NoSubscription' and no additional error information was provided
+(https://generators.ai.unity.com).
+```
+
+**它不是 CharForge 报的，也不影响编译与运行。** 出处是 Unity 官方的
+`com.unity.ai.assistant` 包（`Unity.AI.ModelSelector`）在轮询生成式模型列表，
+而当前 Unity 账号是 **Personal 版、且没有 Unity AI 订阅**，服务端就返回
+`NoSubscription`。判据两条：
+
+- 堆栈里只有 `Unity.AI.*` / `AiEditorToolsSdk.*`，没有一行 `CharForge`；
+- 收尾是 `UnityEngine.Debug:Log`（普通日志），不是 `LogError` / `LogException`。
+
+想让它消失，三选一：
+
+| 做法 | 适合谁 |
+|---|---|
+| **移除包**：`Window > Package Manager > Unity AI Assistant > Remove`（Unity 官方说明该包「默认不包含、需手动安装」，可安全移除） | 不需要 Unity AI 的，推荐 |
+| **只静音**：Console 搜索框输入 `-NoSubscription` 排除该条；右上角 `⋮ > Stack Trace > None` 收掉堆栈 | 想留着 AI 面板的 |
+| **开通免费试用**：Personal 版可注册 Unity AI 试用，每月 1,000 点额度 | 想用 Unity 官方 Sprite Generator 出 2D 素材的 |
+
+> 第三条与 W2 有关：Unity 自带的 **Sprite Generator** 是同类的 2D 角色素材来源，
+> 若开通试用，可以把它当作 `ComfyUiBackend` 之外的另一条后端路线来对比。
+
 ---
 
 ## 4. 第二次运行：换成文博场景（体现学术严谨）
