@@ -35,11 +35,22 @@
 
 | 任务 | 说明 |
 |---|---|
-| 在窗口「④ 后端设置」里配好 ComfyUI 地址与 workflow.json | 需要 API 格式导出（Settings → Enable Dev mode） |
-| 写 `*.bindings.json` 指明正向/负向/种子节点 | 不写会退化到启发式（取前两个 CLIPTextEncode），只保证"能跑" |
-| workflow 里接 ControlNet OpenPose | 四向姿势模板见 `configs/pose_templates/README.md` |
-| 接 IP-Adapter / LoRA 做画风锁定 | **先别训 LoRA**：参考图 + IP-Adapter 起步，通了再考虑训练 |
+| ~~配好 ComfyUI 地址与 workflow.json~~ | **已备好**：`packages/com.charforge/Configs/comfyui/` 下有可直接导入的工作流（含 ControlNet 版）+ 同名 `bindings.json`，并按显存给了参数建议。只需改模型文件名 |
+| ~~写 `*.bindings.json` 指明正向/负向/种子节点~~ | **已备好**。不写会退化到启发式（取前两个 CLIPTextEncode），只保证"能跑" |
+| ~~workflow 里接 ControlNet OpenPose~~ | **代码已接通**：`load_image` 绑定不再被忽略，插件会把 `<Unity 工程>/CharForge/pose_templates/{direction}_{action}_{index:00}.png` 自动上传并注入 LoadImage 节点。**骨架图要你自己准备**，做法见该目录 README |
+| 接 IP-Adapter 做画风锁定 | **先别训 LoRA**：参考图 + IP-Adapter 起步，通了再考虑训练。这需要装 `ComfyUI_IPAdapter_plus` 自定义节点 |
+| 准备四向姿势骨架图 | 一致性在这一步决定，不在提示词。可用现成素材，或用 Mixamo 自制（最可控） |
 | 验证四向一致性 | 把四向 idle 拼成一张对比图，用眼睛看 |
+
+**v0.3.0 补掉的三处「不报错但结果不对」**（这些是接入真实生成后必然踩到的）：
+
+- **每帧一个随机种子** → 等于每帧生成一个不同的人。现在改为同一任务共用一个种子
+  （由 jobId 派生，可复现），各帧差异只应来自姿势约束。
+- **`load_image` 绑定解析了却没人用** → ControlNet 永远拿不到骨架图，
+  症状表现为「四向姿势没锁住」，实为根本没接上。
+- **SD 出的是全不透明图** → 下游靠 alpha 裁切，拿到不透明图时包围盒等于整幅画布，
+  碰撞体会盖住整个屏幕且不报任何错。现在加了本地色键抠图兜底（凑近背景色的像素还会被
+  四边连通域保护，避免把青灰长衫击穿成空洞），质量仍不如 rembg，已在日志里说明。
 
 **验收**：`sheet.png` 里四向角色**比例一致、脚底对齐、风格看起来来自同一个项目**。
 
@@ -67,7 +78,7 @@
 
 ## W4 · 分层资产 + 文博端到端 + 发布
 
-**目标**：可发布的 v0.2.4（当前包版本已到 0.2.4，本阶段是把它推到"可发布"状态）。
+**目标**：可发布的 v0.3.0（当前包版本已到 0.3.0，本阶段是把它推到"可发布"状态）。
 
 | 任务 | 说明 |
 |---|---|
@@ -75,7 +86,7 @@
 | 跑通文博示例 | `examples/museum_guide`：馆藏形制约束 → 人设知识边界 → 导览员 prefab |
 | 录 GIF（3 个） | 生成过程 / Editor 装配 / 场景中走动+对话——README 的第一印象全靠它 |
 | 写清「标准→实现」映射表 | 尤其 AIGC 标识那一段（GB 45438-2025） |
-| 打 tag v0.2.4 | |
+| 打 tag v0.3.0 | |
 | 发 UPM / OpenUPM | 让别人一条 URL 就能装 |
 
 **验收**：别人 clone 下来，**按 README 在 10 分钟内跑出第一个 prefab**（因为不需要任何环境）。

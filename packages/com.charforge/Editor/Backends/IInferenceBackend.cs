@@ -74,6 +74,16 @@ namespace CharForge.EditorTools.Backends
         /// <summary>风格约束标签（由 StyleAnalysis 或预设给出）。</summary>
         public List<string> StyleTags = new List<string>();
 
+        /// <summary>
+        /// 本帧对应的 ControlNet 姿势骨架图绝对路径（可为空）。
+        ///
+        /// 四向一致的**真正来源不是提示词，是姿势约束**：同一句提示词分别生成正/背/侧面，
+        /// 模型会给出四个身材比例都不一样的人。喂上骨架图后身体比例与姿态被锁住，
+        /// 差异只剩视角。为空时后端应当照常出图，但必须在告警里说明「没有姿势约束」——
+        /// 静默降级会让人以为一致性是坏的，其实是根本没约束。
+        /// </summary>
+        public string PoseTemplatePath = "";
+
         public string SliceName => $"{Direction}_{Action}_{Index:00}";
     }
 
@@ -116,6 +126,15 @@ namespace CharForge.EditorTools.Backends
 
         /// <summary>抠图。不支持时返回 null。</summary>
         Task<byte[]> MattingAsync(byte[] pngBytes, CancellationToken ct);
+
+        /// <summary>
+        /// 取出并清空后端在生成过程中累积的告警（例如「姿势模板缺失，本次没有姿势约束」）。
+        ///
+        /// 为什么要有这个口子：这类问题后端自己知道，流水线自己不知道，
+        /// 而它恰恰决定了產出能不能被采信。丢掉它，用户只会看到「一致性很差」
+        /// 却查不到原因。不实现的后端返回空集合即可。
+        /// </summary>
+        IReadOnlyList<string> DrainWarnings();
     }
 
     /// <summary>

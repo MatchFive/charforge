@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CharForge.EditorTools.Backends;
 using CharForge.EditorTools.Data;
+using CharForge.EditorTools.Util;
 using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
@@ -221,6 +222,22 @@ namespace CharForge.EditorTools.Services
                 warnings.Add("后端不支持角色卡提炼，已使用本地规则版（角色名/年代靠启发式识别）。");
             }
 
+            // 提示词最终要喂给 SD 的英文 CLIP 词表——中文术语必须先翻译，否则整段被丢弃。
+            // 这一步对文博场景尤其关键：决定画面内容的恰恰是「南宋」「龙泉窑」「青灰长衫」这些中文词，
+            // 不翻译的话进模型的只剩画风预设里那几句英文标签。
+            var glossary = PromptGlossary.Load();
+            if (glossary.Count == 0)
+            {
+                warnings.Add(
+                    "未找到术语表 prompt_glossary.json（或其中没有词条），中文提示词不会被翻译成英文。" +
+                    "文本编码器只认英文，中文部分对模型等于不存在。期望位置：" +
+                    CharForgePaths.DescribeLookup("prompt_glossary.json"));
+            }
+            else
+            {
+                PromptGlossary.TranslateCard(card, glossary, warnings);
+            }
+
             // ── [2] 风格约束 ──
             report("style_lock", 10f, "锁定画风约束…");
             var style = await backend.ExtractStyleAsync(request.ReferenceImages, request.StylePreset, ct).ConfigureAwait(false);
@@ -267,6 +284,12 @@ namespace CharForge.EditorTools.Services
             int total = directions.Count * actions.Count * framesPerClip;
             int done = 0;
 
+            // 同一次任务内的所有帧共用一个种子，见 SeedFromJobId 的说明。
+            int jobSeed = SeedFromJobId(jobId);
+            bool anyPoseTemplate = false;
+            bool usedLocalMatting = false;
+            var mattingNotes = new List<string>();
+
             foreach (var direction in directions)
             {
                 foreach (var action in actions)
@@ -274,6 +297,13 @@ namespace CharForge.EditorTools.Services
                     for (int i = 0; i < framesPerClip; i++)
                     {
                         ct.ThrowIfCancellationRequested();
+
+                        string sliceName = $"{direction}_{action}_{i:00}";
+                        // 两级查找：<Unity 工程>/CharForge/pose_templates/ 优先，
+                        // 其次插件包内的随包默认。见 CharForgePaths。
+                        string pose = CharForgePaths.ResolveFile(
+                            Path.Combine("pose_templates", sliceName + ".png")) ?? "";
+                        if (!string.IsNullOrEmpty(pose)) anyPoseTemplate = true;
 
                         var frameRequest = new FrameRequest
                         {
@@ -288,7 +318,9 @@ namespace CharForge.EditorTools.Services
                             PositivePrompt = BuildPositivePrompt(card, style, direction, action, i, framesPerClip),
                             NegativePrompt = BuildNegativePrompt(card, style),
                             ReferenceImages = request.ReferenceImages ?? new List<string>(),
-                            StyleTags = style.PositiveTags
+                            StyleTags = style.PositiveTags,
+                            PoseTemplatePath = pose,
+                            Seed = jobSeed
                         };
 
                         float percent = 12f + 58f * (done / (float)Mathf.Max(1, total));
@@ -304,17 +336,54 @@ namespace CharForge.EditorTools.Services
                             continue;
                         }
 
-                        // 抠图：后端能做就用后端的，不能就让后面的归一化按 alpha 自行裁切
+                        // 抠图：后端能做就用后端的（rembg 质量最好），
+                        // 不能就用本地色键兜底——**不能什么都不做**。
+                        // 扩散模型出的是全不透明图，不抠图的话下游的 alpha 裁切失效，
+                        // 包围盒等于整幅画布，碰撞体会盖住整个角色，而且一声不吭。
                         var matted = await backend.MattingAsync(png, ct).ConfigureAwait(false);
+                        byte[] finalPng = matted;
+                        if (finalPng == null)
+                        {
+                            var outcome = LocalMatting.EnsureTransparent(png);
+                            finalPng = outcome.Png;
+                            if (outcome.Changed) usedLocalMatting = true;
+                            else if (!string.IsNullOrEmpty(outcome.Note) && !mattingNotes.Contains(outcome.Note))
+                                mattingNotes.Add(outcome.Note);
+                        }
+
                         placed.Add(new PlacedFrame
                         {
                             Direction = direction,
                             Action = action,
                             Index = i,
-                            Png = matted ?? png
+                            Png = finalPng
                         });
                     }
                 }
+            }
+
+            // 后端自己攒下的告警（如「姿势模板缺失」「找不到 load_image 节点」）。
+            // 这些决定了产出能不能采信，不能让它烂在后端里。
+            foreach (var backendWarning in backend.DrainWarnings()) warnings.Add(backendWarning);
+
+            warnings.AddRange(mattingNotes);
+
+            if (usedLocalMatting)
+            {
+                warnings.Add(
+                    "抠图走的是本地色键兜底（当前后端未提供抠图）。纯色背景效果可用，" +
+                    "渐变或带纹理的背景会留下残边；要更好的边缘请在 ComfyUI 工作流里接 rembg 节点。");
+            }
+
+            if (!anyPoseTemplate)
+            {
+                warnings.Add(
+                    "本次没有任何姿势骨架图：姿势只能靠提示词里的文字（如「keyframe 3 of 4」）去影响模型，" +
+                    "而扩散模型对这类文字几乎没有稳定响应。表现为各帧比例/朝向漂移、身高忽高忽低，" +
+                    "而不是一组连贯的行走循环。这是「缺姿势约束」，不是模型质量问题——" +
+                    "把骨架图放到 " +
+                    CharForgePaths.DescribeLookup(Path.Combine("pose_templates", "south_idle_00.png")) +
+                    " 后重跑即可（命名约定与制作方法见该目录 README）。");
             }
 
             if (placed.Count == 0)
@@ -648,6 +717,24 @@ namespace CharForge.EditorTools.Services
             Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
 
         private static string NewJobId() => Guid.NewGuid().ToString("N").Substring(0, 12);
+
+        /// <summary>
+        /// 同一次任务内的所有帧共用一个种子——这是「角色同一性」的总开关。
+        ///
+        /// 之前每帧都拿一个随机种子，等于每帧生成一个不同的人：四向一致性从第一步就不成立，
+        /// 而且症状（「四个人」）看起来像模型不行，实际是种子没管住。
+        /// 固定种子后，同提示词 + 同骨架图 = 同一套比例与配色，各帧的差异**只应来自姿势约束**。
+        /// 种子由 jobId 派生：同一次点击可复现，重新点一次会拿到新的一版（符合直觉）。
+        /// </summary>
+        private static int SeedFromJobId(string jobId)
+        {
+            unchecked
+            {
+                int hash = 17;
+                foreach (char c in jobId ?? "") hash = hash * 31 + c;
+                return 1 + (hash & 0x7FFFFFFE);   // 落在 1..int.MaxValue，避开 0 与负数
+            }
+        }
 
         /// <summary>
         /// prefab 名必须 ASCII 安全：中文角色名（如「云叔」）进文件名会在跨平台 git、

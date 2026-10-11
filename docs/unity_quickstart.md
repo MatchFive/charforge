@@ -40,7 +40,7 @@
 
 ### 装完应该看到什么
 
-- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.4`
+- Package Manager 出现 **CharForge 2D Character Pipeline** `0.3.0`
 - 顶部菜单多出 **`Window > CharForge 角色资产生成`**
 - **Console 没有红色报错**
 
@@ -117,7 +117,7 @@ Assets/CharForge/<job_id>/
 
 > 上表里标「不该再出现」的几条，是已经修掉的历史问题。若仍然报出来，多半是
 > Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
-> 或确认 Package Manager 里的版本号是 `0.2.4`（或更高）。
+> 或确认 Package Manager 里的版本号是 `0.3.0`（或更高）。
 
 ### 怎么判断是「旧错误残留」还是「真的还在报」
 
@@ -240,11 +240,19 @@ W1 验收通过后，按 `docs/roadmap.md` 一周一环推进。**铁律：任�
 
 顺序建议：
 
-1. **W2** `ComfyUiBackend` 联调 —— 从 ComfyUI 用 `Save (API Format)` 导出 workflow，
-   在同目录写 `xxx.bindings.json` 指定提示词/种子节点。这一步开始产出真实美术资产。
+1. **W2** 接本地 ComfyUI 出真实美术资产 —— **从 `packages/com.charforge/Configs/comfyui/README.md` 开始**，
+   那里有一份开箱可导入的工作流（含 ControlNet 版）和针对显存的参数建议，
+   不需要自己在 ComfyUI 里从零搭图或手工导出 API 格式。
 2. **W3** 脚底对齐与碰撞体打磨 + `PrefabAssembler` 手感 —— 让 prefab"看起来对"。
 3. **W4** `style_lock`：先用**参考图 + IP-Adapter**做风格约束，**不要一上来训 LoRA**。
    顺序错了会卡死在训练环节，前功尽弃。
 4. **W5** Sprite Library 实机验证 + 打包文档 + 一个能贴进 README 的 GIF。
+
+> **W2 里最容易走错的一步**：把 ComfyUI 接上、出图成功，就以为一致性会自动成立。
+> 不会。四向一致的来源是**姿势约束**（ControlNet 骨架图）而不是提示词，
+> 骨架图放在 **Unity 工程根**下的 `CharForge/pose_templates/`（不是仓库里，
+> 插件包与工程是两棵目录树），命名约定见随包的 `Configs/pose_templates/README.md`。
+> 没有骨架图时流水线会在日志里明确告警「本次没有姿势约束」——
+> 看到这条告警就不要去调提示词了，先把骨架图补上。
 
 跑完第一次把 Console 里 `[CharForge]` 开头的完整输出发我——按输出修，比按猜测修快得多。

@@ -4,6 +4,86 @@
 
 ---
 
+## [0.3.0] — 2026-10-11
+
+### W2 · 接通真实生成链路，并补掉四处「不报错但结果不对」的断点
+
+准备接本机 ComfyUI 时把整条链路重新走了一遍，发现四处**此前从未被触发、因此从未暴露**
+的问题。它们的共同特征是：不抛异常、不报编译错误，只是产出一个「看起来不对」的结果。
+
+**1. 每帧一个随机种子——四向一致性的头号杀手。**
+`FrameRequest.Seed` 从未被赋值（默认 -1），后端于是每帧现取一个随机种子。
+16 帧 = 16 个不同的人，而症状（「四个人」）看起来像模型不行。
+现在同一任务共用一个种子（`SeedFromJobId`，由 jobId 派生，可复现）；
+各帧的差异**只应来自姿势约束**——这正是把 ControlNet 放在首位的原因。
+
+**2. `load_image` 绑定解析了却没有任何消费点——姿势注入是死的。**
+`WorkflowBindings.Load` 读了 `load_image`，`Apply` 却没碰它，`UploadImageAsync`
+写好了也从未被调用。后果：无论用户准备多少骨架图，ControlNet 拿到的永远是工作流里
+写死的那一张，症状表现为「四向姿势锁不住」，实为**根本没接上**。
+现在 `ApplyPoseTemplateAsync` 会把 `<Unity 工程>/CharForge/pose_templates/{direction}_{action}_{index:00}.png`
+经 `/upload/image` 传过去并改写 LoadImage 节点的文件名；缺图时明确告警并给出期望路径。
+
+**3. 扩散模型出的是全不透明图——抠图缺失会让碰撞体盖住整个屏幕。**
+提示词里的 `transparent background` 只是一句话，SD 不会真的产生 alpha。
+而下游 `FrameNormalizer` 恰恰靠 alpha 裁切并反算角色包围盒：拿到不透明图时
+包围盒 = 整幅画布，碰撞体覆盖全屏，**且不报任何错**。
+新增 `LocalMatting`：四角中位数取背景色 → **从四边做连通域**判定背景
+（只把连到画外的部分判为背景，因此青灰长衫对灰底、青碧釉色对绿底这类
+「角色身上的相近色」不会被击穿成空洞）→ 输出带 alpha 的 PNG。
+质量低于 rembg，已在告警里说明；背景占比不足 2% 时判定为「无纯色背景」并拒绝键控，避免毁图。
+
+**4. 中文提示词整段被丢弃——文博场景的核心信息进不了模型。**
+SD/SDXL 的文本编码器用英文 CLIP 词表，**汉字不入模型**（不是翻错，是压根没有）。
+而决定画面内容的恰恰是「南宋」「龙泉窑」「青灰色长衫」这些中文词；不翻译的话，
+真正进模型的只剩画风预设里那几句英文标签，产出会是个与文博无关的随机角色。
+新增 `packages/com.charforge/Configs/prompt_glossary.json`（术语表，数据而非代码，按词条长度倒序应用）
++ `PromptGlossary.TranslateCard`；翻译后仍残留的中文会被明确列为告警，
+提示补词条或改用英文描述。
+
+### 接口变更
+
+- `IInferenceBackend` 新增 `IReadOnlyList<string> DrainWarnings()`。
+  后端自己知道、流水线不知道的问题（姿势模板缺失、工作流里找不到 load_image 节点）
+  必须能浮到窗口日志里——丢掉它，用户只会看到「一致性很差」却查不到原因。
+  四个后端均已实现，不产生告警的返回空集合。
+- `FrameRequest` 新增 `PoseTemplatePath`。
+
+### 新增配置（开箱可用）
+
+全部位于**插件包内**的 `Configs/`：
+
+- `Configs/comfyui/` —— 两份可直接导入的 API 格式工作流（SD1.5 txt2img 起步版、
+  SD1.5 + ControlNet OpenPose 版），**只用核心节点，不需要装任何自定义节点**；
+  同名 `bindings.json`；README 含显存分档参数建议与失败对照表。
+- `Configs/prompt_glossary.json` —— 文博术语中英对照（年代 / 器物 / 服饰 / 配色 / 身份）。
+- `Configs/pose_templates/README.md` —— 骨架图命名约定与制作方法。
+
+### 配置路径：为什么不能放在仓库的 `configs/` 下
+
+本轮一开始把配置放在仓库根的 `configs/`，随后发现**这在编辑器里永远解析不到**：
+Unity 的 `Application.dataPath` 指向 `<Unity 工程>/Assets`，而插件包是另一棵树
+（`<仓库>/packages/com.charforge`，或 PackageCache 里的展开副本），两者没有共同祖先目录。
+放错位置不会报错，只会表现为「配置静默不生效」——正是本项目已经反复栽过的那类问题。
+
+因此新增 `Editor/Util/CharForgePaths.cs`，统一按两级查找，先命中者胜：
+
+1. `<Unity 工程>/CharForge/<相对路径>` —— 用户覆盖（自己的姿势模板、改过的术语表）；
+2. `<插件包>/Configs/<相对路径>` —— 随包默认。
+
+包内路径用 `PackageInfo.resolvedPath` 反查，因此 Add from disk / 嵌入 / 注册表三种安装
+形态都能定位（写死 `Packages/com.charforge` 会在后两种形态下失效）。
+查不到文件时**返回 null 而非抛异常**，由调用方转成一句可读告警并给出两处期望位置。
+
+### 静态检查
+
+- 新增**规则 7「括号不配平」**。纯手写 C# 时手滑删/多一个括号，Unity 往往报在文件末尾，
+  离真正出错处很远。配合 `blank_strings`（剥离字符串字面量）做结构检查，零误报。
+- `tests/test_csharp_lint.py` 扩到 9 个用例，覆盖两条新规则的正例与反例，
+  并断言真实仓库始终为零命中。
+
+---
+
 ## [0.2.4] — 2026-10-11
 
 ### 修复 · 0.2.3 编译不过：跨类型裸调 private 成员（CS0103）

@@ -14,6 +14,7 @@
   4. Process.Kill(entireProcessTree: ...) —— 该重载在 .NET Framework 兼容档位下不存在
   5. 裸写 Object.xxx / <Object>  —— 同时 using UnityEngine 与 using System 时会 CS0104 二义
   6. 跨顶级类型裸调 private/protected 成员 —— CS0103，且报错文案会误导
+  7. {} / () / [] 不配平 —— 手改代码误删括号，Unity 报在文件末尾，定位成本高
 
 第 6 条与前面几条不同：它不是「API 用错」，而是**作用域用错**。
 C# 的访问控制在*类型*一级生效，private 成员只对其声明类型（及其嵌套类型）可见。
@@ -23,6 +24,9 @@ C# 的访问控制在*类型*一级生效，private 成员只对其声明类型�
 看起来像「方法写了忘记保存 / 文件没编译」，实际是**可见性**问题。
 本规则用行扫描状态机实现（不依赖括号配对），依赖本仓库的缩进约定：
 顶级类型声明 4 空格、直接成员 8 空格。
+
+第 7 条是结构检查，与语义无关：只要有一次手改代码时误删或多加一个括号，
+在 Unity 里的报错位置往往离真正出错的地方很远。在本地拦下来成本极低。
 
 用法：python scripts/check_unity_api_misuse.py
 退出码：0 = 通过；1 = 有命中。
@@ -215,6 +219,58 @@ def csharp_files() -> list[Path]:
     return files
 
 
+def blank_strings(text: str) -> str:
+    """把字符串字面量的内容替换成空白（保留长度与换行）。
+
+    strip_comments 会保留字符串内容（对正则匹配是必要的），但做**结构**分析时
+    字符串里的引号、括号、花括号会干扰判断。两者用途不同，别混用。
+    """
+    out = []
+    i, n = 0, len(text)
+    quote = None
+    while i < n:
+        c = text[i]
+        if quote:
+            if c == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+                out.append(c)
+            else:
+                out.append("\n" if c == "\n" else " ")
+            i += 1
+            continue
+        if c in "\"'":
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def unbalanced_delimiters(text: str) -> list[str]:
+    """检查 {} / () / [] 是否配平。
+
+    纯手写 C# 时最容易犯的错就是手滑删/多一个括号，而这类错误在 Unity 里的报错
+    位置往往离真正出错的地方很远（常见的是「文件末尾缺少 }」）。在本地拦下来便宜得多。
+    """
+    blanked = blank_strings(text)
+    problems: list[str] = []
+    for label, opener, closer in (
+        ("大括号", "{", "}"),
+        ("圆括号", "(", ")"),
+        ("方括号", "[", "]"),
+    ):
+        a, b = blanked.count(opener), blanked.count(closer)
+        if a != b:
+            problems.append(f"{label}不配平（{opener} × {a}，{closer} × {b}）")
+    return problems
+
+
 def main() -> int:
     findings: list[str] = []
     checked = 0
@@ -230,6 +286,12 @@ def main() -> int:
         raw = path.read_text(encoding="utf-8", errors="replace")
         text = strip_comments(raw)
         lines = text.splitlines()
+
+        for problem in unbalanced_delimiters(text):
+            findings.append(
+                f"{rel}  [括号不配平]  {problem}。"
+                "多为手改代码时误删/误加；Unity 里通常报在文件末尾（「缺少 }」），离真正出错处很远。"
+            )
 
         for name, pattern, hint in RULES:
             for m in pattern.finditer(text):

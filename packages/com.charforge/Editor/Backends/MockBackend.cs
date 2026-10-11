@@ -96,6 +96,9 @@ namespace CharForge.EditorTools.Backends
             return Task.FromResult<byte[]>(null);
         }
 
+        /// <summary>占位后端不依赖任何外部资源，因此没有需要上报的问题。</summary>
+        public IReadOnlyList<string> DrainWarnings() => Array.Empty<string>();
+
         public void Dispose() { }
 
         // ────────────────────────── 绘制 ──────────────────────────

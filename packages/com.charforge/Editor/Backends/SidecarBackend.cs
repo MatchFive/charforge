@@ -93,6 +93,9 @@ namespace CharForge.EditorTools.Backends
             return Task.FromResult<byte[]>(null);
         }
 
+        /// <summary>抠图由 sidecar 的 /matting 负责；这里没有额外告警。</summary>
+        public IReadOnlyList<string> DrainWarnings() => Array.Empty<string>();
+
         // ────────────────────────── 整单执行 ──────────────────────────
 
         public async Task<WholeJobResult> RunWholeJobAsync(

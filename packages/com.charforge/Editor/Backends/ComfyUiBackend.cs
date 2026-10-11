@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CharForge.EditorTools.Data;
+using CharForge.EditorTools.Util;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -46,6 +47,25 @@ namespace CharForge.EditorTools.Backends
         public BackendKind Kind => BackendKind.ComfyUI;
         public int Priority => 100;
         public BackendCapability Capabilities => BackendCapability.FrameGeneration;
+
+        // ────────────────────────── 告警收集 ──────────────────────────
+        // 「姿势模板缺失」这类问题本后端知道、流水线不知道，却直接决定产出能不能采信。
+        // 同一句话只报一次——16 帧重复 16 遍会把窗口日志冲掉。
+        private readonly List<string> _warnings = new List<string>();
+        private readonly HashSet<string> _warnedOnce = new HashSet<string>();
+
+        private void Warn(string message)
+        {
+            if (_warnedOnce.Add(message)) _warnings.Add(message);
+        }
+
+        public IReadOnlyList<string> DrainWarnings()
+        {
+            var copy = _warnings.ToArray();
+            _warnings.Clear();
+            _warnedOnce.Clear();
+            return copy;
+        }
 
         // ────────────────────────── 探测 ──────────────────────────
 
@@ -118,6 +138,7 @@ namespace CharForge.EditorTools.Backends
             var bindings = WorkflowBindings.Load(WorkflowApiJsonPath);
             var workflow = JObject.Parse(await ReadAllTextAsync(WorkflowApiJsonPath, ct).ConfigureAwait(false));
             bindings.Apply(workflow, request);
+            await ApplyPoseTemplateAsync(workflow, bindings, request, ct).ConfigureAwait(false);
 
             string promptId = await SubmitAsync(workflow, ct).ConfigureAwait(false);
 
@@ -134,6 +155,54 @@ namespace CharForge.EditorTools.Backends
             throw new TimeoutException(
                 $"ComfyUI 在 {FrameTimeoutSeconds} 秒内未返回结果（prompt_id={promptId}）。" +
                 "常见原因：模型过大导致显存换页、workflow 里存在未安装的自定义节点。请先在 ComfyUI 界面手动跑一次该 workflow。");
+        }
+
+        /// <summary>
+        /// 把本帧的姿势骨架图送进 workflow 的 LoadImage 节点（即 ControlNet 的图像输入）。
+        ///
+        /// ComfyUI 的 LoadImage 读的是「它自己 input 目录下的文件名」，不是绝对路径，
+        /// 所以本地文件必须先经 /upload/image 传过去再改节点上的文件名。
+        ///
+        /// 这条链路此前是**断的**：bindings 里解析了 load_image 却没有任何消费点，
+        /// 于是无论用户准备了多少骨架图，ControlNet 拿到的永远是工作流里写死的那一张。
+        /// 表面症状是「四向姿势没锁住」，实际是根本没接上——所以这里不但要接，
+        /// 缺图时还必须说出来，否则同样的症状会再被误判成「模型不行」。
+        /// </summary>
+        private async Task ApplyPoseTemplateAsync(
+            JObject workflow, WorkflowBindings bindings, FrameRequest request, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(bindings.LoadImage)) return;   // 该工作流没有 LoadImage 节点
+
+            var inputs = workflow[bindings.LoadImage]?["inputs"];
+            if (inputs == null)
+            {
+                Warn($"工作流里找不到 load_image 绑定的节点 {bindings.LoadImage}，姿势注入被跳过。");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(request.PoseTemplatePath) || !File.Exists(request.PoseTemplatePath))
+            {
+                // 文案里不带帧名，这样 16 帧只会报一次（Warn 有去重），
+                // 否则同一条问题会刷 16 遍把日志冲掉。
+                Warn(
+                    "缺少姿势骨架图，本次各帧都沿用工作流里写死的那张图片——" +
+                    "四向姿势不会被锁住。放置位置：" +
+                    CharForgePaths.DescribeLookup(Path.Combine("pose_templates", "south_idle_00.png")) +
+                    "；命名约定与制作方法见该目录下的 README。");
+                return;
+            }
+
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(request.PoseTemplatePath);
+                string uploaded = await UploadImageAsync(bytes, request.SliceName + ".png", ct)
+                    .ConfigureAwait(false);
+                inputs["image"] = uploaded;
+            }
+            catch (Exception e)
+            {
+                Warn($"上传姿势图失败（{e.Message}），本帧沿用工作流里写死的图片。");
+            }
         }
 
         private async Task<string> SubmitAsync(JObject workflow, CancellationToken ct)

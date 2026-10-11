@@ -14,7 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from check_unity_api_misuse import cross_type_private_calls  # noqa: E402
+from check_unity_api_misuse import (  # noqa: E402
+    cross_type_private_calls,
+    unbalanced_delimiters,
+)
 
 
 # ── 真实踩过的坑：v0.2.3 的 WithWarnings ──
@@ -142,3 +145,34 @@ def test_repository_itself_is_clean():
         )
         findings.extend(f"{path.name}:{ln} {name} ({decl_type})" for ln, name, decl_type, _ in hits)
     assert findings == [], "跨类型调用非 public 成员：\n" + "\n".join(findings)
+
+
+# ── 规则 7：括号不配平 ──
+# 手改代码时误删/误加括号，在 Unity 里报在文件末尾，定位成本很高。
+# 这条检查是结构性的，不涉及语义，因此必须做到零误报。
+
+
+def test_balanced_code_passes():
+    assert unbalanced_delimiters("class A { void M() { int[] xs = new int[2]; } }") == []
+
+
+def test_missing_brace_is_caught():
+    problems = unbalanced_delimiters("class A { void M() { } ")
+    assert len(problems) == 1
+    assert "大括号" in problems[0]
+
+
+def test_braces_inside_strings_are_ignored():
+    """C# 的插值字符串与 JSON 字面量里全是花括号，不能算进去。"""
+    assert unbalanced_delimiters('class A { string s = "{{ \\"x\\": 1 }}"; }') == []
+    assert unbalanced_delimiters('class A { string s = $"{a}({b})"; }') == []
+
+
+def test_repository_delimiters_balanced():
+    findings: list[str] = []
+    for path in sorted((ROOT / "packages").rglob("*.cs")):
+        if "obj" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        findings.extend(f"{path.name}: {p}" for p in unbalanced_delimiters(text))
+    assert findings == [], "括号不配平：\n" + "\n".join(findings)

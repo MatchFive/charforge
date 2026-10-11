@@ -8,10 +8,23 @@
 但只要给 ControlNet 喂上四个方向的**同一套骨架图**，身体比例与姿态就被锁住了，
 剩下的差异只在视角——这正是我们要的。
 
+## 文件放在哪
+
+插件按**两级顺序**查找，先命中者胜：
+
+```
+1) <你的 Unity 工程根>/CharForge/pose_templates/     ← 优先，你放这里
+2) <插件包>/Configs/pose_templates/                  ← 随包默认（本目录）
+```
+
+> 注意是**工程根**（`Assets` 的同级目录），不是 `Assets/` 里面，也不是本仓库。
+> 插件包和 Unity 工程是两棵不同的目录树，把骨架图放在仓库的 `configs/` 下
+> 编辑器**永远解析不到**，而且不会报错——只会表现为「姿势没锁住」。
+
 ## 文件命名约定
 
 ```
-configs/pose_templates/
+<Unity 工程根>/CharForge/pose_templates/
 ├── south_idle_00.png ~ south_idle_03.png     # 正面待机 4 帧
 ├── south_walk_00.png ~ south_walk_03.png     # 正面行走 4 帧
 ├── north_idle_00.png ...

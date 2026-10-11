@@ -110,6 +110,9 @@ namespace CharForge.EditorTools.Backends
             return Task.FromResult<byte[]>(null);
         }
 
+        /// <summary>实验性后端目前不上报问题；抠图走流水线的本地兜底。</summary>
+        public IReadOnlyList<string> DrainWarnings() => Array.Empty<string>();
+
         public Task<byte[]> GenerateFrameAsync(FrameRequest request, CancellationToken ct)
         {
 #if !CHARFORGE_SENTIS
