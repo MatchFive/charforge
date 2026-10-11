@@ -30,8 +30,12 @@ namespace CharForge.EditorTools.UI
     [EditorWindowTitle(title = "CharForge", icon = "d_SpriteRenderer Icon")]
     public class CharacterForgeWindow : EditorWindow
     {
-        private const string UxmlPath = "Packages/com.charforge/Editor/UI/CharacterForgeWindow.uxml";
-        private const string UssPath = "Packages/com.charforge/Editor/UI/CharacterForgeWindow.uss";
+        // 界面资产路径**不写死**。包有三种安装形态（Add package from disk / 嵌入 Packages/ /
+        // 注册表安装），UPM 暴露的虚拟路径并不总等于仓库里的目录名；一旦写死，加载失败是
+        // **静默的**——窗口照常打开，只是样式丢失、回落到兜底界面，排查成本很高。
+        // 所以这里按「程序集反查包路径 → 全库按类型搜索」两级定位。
+        private const string UxmlFileName = "CharacterForgeWindow.uxml";
+        private const string UssFileName = "CharacterForgeWindow.uss";
 
         private static readonly string[] BackendIds = { "auto", "mock", "comfyui", "sidecar", "sentis" };
         private static readonly string[] BackendLabels =
@@ -101,14 +105,20 @@ namespace CharForge.EditorTools.UI
         {
             rootVisualElement.Clear();
 
-            var styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(UssPath);
+            string ussPath = ResolvePackageAssetPath(UssFileName);
+            var styleSheet = string.IsNullOrEmpty(ussPath)
+                ? null
+                : AssetDatabase.LoadAssetAtPath<StyleSheet>(ussPath);
             if (styleSheet != null) rootVisualElement.styleSheets.Add(styleSheet);
 
-            var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UxmlPath);
+            string uxmlPath = ResolvePackageAssetPath(UxmlFileName);
+            var uxml = string.IsNullOrEmpty(uxmlPath)
+                ? null
+                : AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(uxmlPath);
             if (uxml != null)
                 rootVisualElement.Add(uxml.Instantiate());
             else
-                BuildFallbackTree();     // 包被移动/裁剪时仍要能用，不能白屏
+                BuildFallbackTree(uxmlPath);     // 包被移动/裁剪时仍要能用，不能白屏
 
             CacheAndBuildControls();
             LoadSettingsIntoUi();
@@ -331,7 +341,7 @@ namespace CharForge.EditorTools.UI
         }
 
         /// <summary>UXML 缺失时的兜底骨架：宁可样式朴素，也不能白屏。</summary>
-        private void BuildFallbackTree()
+        private void BuildFallbackTree(string attemptedPath)
         {
             var root = new VisualElement { name = "root" };
             root.AddToClassList("cf-root");
@@ -376,7 +386,49 @@ namespace CharForge.EditorTools.UI
             root.Add(log);
 
             rootVisualElement.Add(root);
-            Debug.LogWarning($"[CharForge] 未找到 UI 定义文件（{UxmlPath}），已使用兜底界面。");
+            Debug.LogWarning(
+                $"[CharForge] 未找到界面定义文件（{attemptedPath ?? UxmlFileName}），已使用兜底界面。" +
+                "功能不受影响；若希望恢复完整版式，请确认包内 Editor/UI/ 下的 .uxml 与 .uss 未被删除或裁剪。");
+        }
+
+        /// <summary>
+        /// 定位包内界面资产。两级策略：
+        /// 1. 用本程序集反查所属包（对三种安装形态都成立）；
+        /// 2. 按资产类型全库搜索（包被改名 / 被嵌入到非标准路径时的兜底）。
+        /// 找不到返回 null，由调用方决定是回落还是提示——不抛异常。
+        /// </summary>
+        private static string ResolvePackageAssetPath(string fileName)
+        {
+            try
+            {
+                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(
+                    typeof(CharacterForgeWindow).Assembly);
+                if (info != null && !string.IsNullOrEmpty(info.assetPath))
+                {
+                    string candidate = $"{info.assetPath}/Editor/UI/{fileName}";
+                    if (AssetDatabase.LoadAssetAtPath<Object>(candidate) != null) return candidate;
+                }
+            }
+            catch (Exception)
+            {
+                // 极少数环境下 PackageInfo 反查失败；直接走下面的全库搜索。
+            }
+
+            string typeFilter = fileName.EndsWith(".uxml", StringComparison.OrdinalIgnoreCase)
+                ? "t:VisualTreeAsset"
+                : "t:StyleSheet";
+            string stem = Path.GetFileNameWithoutExtension(fileName);
+
+            foreach (var guid in AssetDatabase.FindAssets($"{stem} {typeFilter}"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(path) &&
+                    path.EndsWith(fileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return path;
+                }
+            }
+            return null;
         }
 
         private void LoadSettingsIntoUi()
@@ -397,14 +449,24 @@ namespace CharForge.EditorTools.UI
             bool sidecar = id == "sidecar" || id == "auto";
             bool sentis = id == "sentis" || id == "auto";
 
-            _comfyUrl?.SetVisible(comfy);
-            _comfyWorkflow?.parent?.SetVisible(comfy);
-            _comfyLaunch?.SetVisible(comfy);
-            _sidecarUrl?.SetVisible(sidecar);
-            _sidecarPython?.SetVisible(sidecar);
-            _sidecarWorkDir?.parent?.SetVisible(sidecar);
-            _sentisModel?.SetVisible(sentis);
-            _sentisExperimental?.SetVisible(sentis);
+            Show(_comfyUrl, comfy);
+            Show(_comfyWorkflow?.parent, comfy);
+            Show(_comfyLaunch, comfy);
+            Show(_sidecarUrl, sidecar);
+            Show(_sidecarPython, sidecar);
+            Show(_sidecarWorkDir?.parent, sidecar);
+            Show(_sentisModel, sentis);
+            Show(_sentisExperimental, sentis);
+        }
+
+        /// <summary>
+        /// 显隐切换走 <c>display</c> 而非 <c>visible</c>：后者保留布局占位，
+        /// 切换后端时会在选项区留下一片空白，看起来像界面坏了。
+        /// </summary>
+        private static void Show(VisualElement element, bool visible)
+        {
+            if (element == null) return;
+            element.style.display = visible ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         // ────────────────────────── 后端操作 ──────────────────────────

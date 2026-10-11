@@ -51,6 +51,8 @@ jobs:
       # 校验的都是"在 CI 里能查出来、但一旦漏掉就会在用户工程里爆掉"的问题：
       # 脚本漏在 asmdef 之外（会被编进 Assembly-CSharp 与用户脚本冲突）、
       # 程序集引用拼错、类型重名、引用了不存在的 uxml/uss、
+      # uxml/uss 路径与 UPM 虚拟路径（Packages/<package.json 的 name>/）不一致
+      # —— 这一项在 Unity 里是**静默失败**（界面回落而不报错），必须靠 CI 拦、
       # asmdef 硬引用与 package.json 依赖不一致。
       - name: 校验包结构（asmdef / 脚本归属 / 引用 / 资产路径）
         run: python scripts/validate_unity_package.py

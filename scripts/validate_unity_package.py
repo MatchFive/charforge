@@ -10,6 +10,8 @@
 4. 大括号配平 —— 便宜但有效的语法体检。
 5. C# 里引用的 UXML / USS 路径真实存在。
 6. package.json 合法，且声明的 dependencies 与 asmdef 的硬引用不矛盾。
+7. **C# 里引用的 uxml/uss 路径真实存在**（UPM 虚拟路径与仓库目录名不是一回事，
+   写错在 Unity 里是静默失败：窗口照常打开，只是样式丢失）。
 """
 
 from __future__ import annotations
@@ -21,7 +23,30 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PKG = ROOT / "packages" / "com.charforge"
+
+
+def _find_package_dir() -> Path:
+    """按 package.json 定位包目录，避免把目录名写死在脚本里。"""
+    candidates = sorted(ROOT.glob("packages/*/package.json"))
+    if not candidates:
+        return ROOT / "packages" / "com.charforge"
+    return candidates[0].parent
+
+
+PKG = _find_package_dir()
+
+
+def _package_name() -> str:
+    try:
+        data = json.loads((PKG / "package.json").read_text(encoding="utf-8"))
+        return data.get("name") or PKG.name
+    except (OSError, json.JSONDecodeError):
+        return PKG.name
+
+
+# UPM 暴露给 AssetDatabase 的虚拟前缀，取 package.json 的 name，
+# **不等于**仓库里的目录名。两者不一致正是最容易写错的地方。
+VIRTUAL_PREFIX = f"Packages/{_package_name()}/"
 
 # asmdef 里允许出现的 Unity 侧程序集引用（其余一律要能被包内 asmdef 名解析）
 EXTERNAL_ASSEMBLIES = {
@@ -40,7 +65,11 @@ TYPE_RE = re.compile(
     re.MULTILINE,
 )
 USING_RE = re.compile(r"^\s*using\s+(?:static\s+)?([\w.]+)\s*;", re.MULTILINE)
-ASSET_REF_RE = re.compile(r"\$\"?([A-Za-z0-9_./\-]+\.(?:uxml|uss))\"?")
+
+# 任何以 .uxml / .uss 结尾的字符串字面量都算资产引用。
+# 早期版本这里要求字符串前带 $，导致普通 const 里的路径从未被检查——
+# 于是「Packages/com.charforge/...」这个错误路径一直没被发现。
+ASSET_REF_RE = re.compile(r'"([^"\n]*\.(?:uxml|uss))"')
 
 KNOWN_NAMESPACE_PREFIXES = (
     "System", "Unity", "UnityEngine", "UnityEditor", "Newtonsoft",
@@ -115,9 +144,21 @@ def check_cs_files(asmdefs: dict[Path, dict]) -> None:
                 warn(f"{rel} 引用了不常见的命名空间 {used}")
 
         for ref in ASSET_REF_RE.findall(text):
-            if ref.startswith("Packages/"):
-                if not (ROOT / ref).exists():
-                    fail(f"{rel} 引用的资产不存在：{ref}")
+            if not ref.startswith("Packages/"):
+                continue
+
+            warn(f"{rel} 硬编码了包内路径 {ref}：UPM 虚拟路径随安装形态变化"
+                 "（Add package from disk / 嵌入 Packages/ / 注册表），"
+                 "加载失败是静默的（界面回落而不报错），建议改用 "
+                 "PackageInfo.FindForAssembly 动态解析")
+
+            if not ref.startswith(VIRTUAL_PREFIX):
+                fail(f"{rel} 引用了 {ref}，但本包的 UPM 虚拟路径是 {VIRTUAL_PREFIX}"
+                     f"（取自 package.json 的 name；仓库目录名 packages/{PKG.name}/ 与它不同）")
+                continue
+
+            if not (PKG / ref[len(VIRTUAL_PREFIX):]).exists():
+                fail(f"{rel} 引用的资产不存在：{ref}")
 
     print(f"  .cs 文件：{len(list(PKG.rglob('*.cs')))} 个，类型：{len(seen_types)} 个")
 
@@ -142,7 +183,7 @@ def check_asmdef_references(asmdefs: dict[Path, dict]) -> None:
 def check_package_json(asmdefs: dict[Path, dict]) -> None:
     path = PKG / "package.json"
     if not path.exists():
-        fail("packages/com.charforge/package.json 不存在")
+        fail(f"{path.relative_to(ROOT)} 不存在")
         return
 
     data = json.loads(path.read_text(encoding="utf-8"))

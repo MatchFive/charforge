@@ -32,7 +32,6 @@ namespace CharForge.EditorTools
         {
             if (action == null) return;
             lock (Gate) Queue.Enqueue(action);
-            _draining = false;
         }
 
         private static void Drain()
@@ -40,31 +39,47 @@ namespace CharForge.EditorTools
             if (_draining) return;
             _draining = true;
 
-            // 单帧最多处理 64 个回调：宁可分帧，也不要让编辑器卡住。
-            for (int i = 0; i < 64; i++)
+            try
             {
-                Action action;
-                lock (Gate)
+                // 单帧最多处理 64 个回调：宁可分帧，也不要让编辑器卡住。
+                for (int i = 0; i < 64; i++)
                 {
-                    if (Queue.Count == 0) break;
-                    action = Queue.Dequeue();
-                }
+                    Action action;
+                    lock (Gate)
+                    {
+                        if (Queue.Count == 0) break;
+                        action = Queue.Dequeue();
+                    }
 
-                try
-                {
-                    action();
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError($"[CharForge] 主线程回调抛出异常：{e}");
+                    }
                 }
-                catch (Exception e)
-                {
-                    Debug.LogError($"[CharForge] 主线程回调抛出异常：{e}");
-                }
+            }
+            finally
+            {
+                // 守卫必须在本帧结束时复位：Drain 由 EditorApplication.update 每帧触发，
+                // 若不复位，后续排队的回调在本帧结束前将永远得不到执行。
+                _draining = false;
             }
         }
 
-        /// <summary>等待主线程执行并返回结果（供 async 流程使用）。</summary>
+        /// <summary>
+        /// 等待主线程执行并返回结果（供 async 流程使用）。
+        ///
+        /// <c>RunContinuationsAsynchronously</c> 不能省：否则 <c>SetResult</c> 会在
+        /// Drain 的循环里**同步**跑完 await 之后的整段流水线（可能是几十秒的出图与装配），
+        /// 编辑器会整帧卡死，而且会重入 Drain。
+        /// </summary>
         public static System.Threading.Tasks.Task<T> RunAsync<T>(Func<T> func)
         {
-            var tcs = new System.Threading.Tasks.TaskCompletionSource<T>();
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<T>(
+                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             Post(() =>
             {
                 try { tcs.SetResult(func()); }
@@ -76,7 +91,8 @@ namespace CharForge.EditorTools
         /// <summary>等待主线程执行（无返回值）。</summary>
         public static System.Threading.Tasks.Task RunAsync(Action action)
         {
-            var tcs = new System.Threading.Tasks.TaskCompletionSource<object>();
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<object>(
+                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             Post(() =>
             {
                 try
