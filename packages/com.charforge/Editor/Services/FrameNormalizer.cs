@@ -60,14 +60,10 @@ namespace CharForge.EditorTools.Services
             var result = new Result();
             if (frames == null || frames.Count == 0) return result;
 
-            // ── 1. 解码 + 裁切，记录每帧裁切后的纹理与包围盒 ──
+            // ── 1. 解码 + 裁切，记录每帧裁切后的纹理 ──
             var cropped = new List<Texture2D>();
             int maxW = 1, maxH = 1;
-
-            // 包围盒成员必须是 float：TrimAlpha 返回的是 Rect，而 Rect.xMin/xMax/yMin/yMax
-            // 都是 float。用 int 承接时，Mathf.Min(int, float) 会匹配到 (float, float) 重载、
-            // 返回 float，赋值回 int 就触发 CS0266。
-            float minLeft = float.MaxValue, minTop = float.MaxValue, maxRight = 0f, maxBottom = 0f;
+            int usableCrops = 0;
 
             try
             {
@@ -76,21 +72,20 @@ namespace CharForge.EditorTools.Services
                     var decoded = Decode(png);
                     if (decoded == null) { cropped.Add(null); continue; }
 
-                    var (crop, box) = TrimAlpha(decoded);
+                    // TrimAlpha 也会回传包围盒，但那是**源图空间**的坐标，这里刻意不用。
+                    // 角色在最终画布上占多大，由第 3 步的统一 scale 决定，必须量缩放后的落位。
+                    var (crop, _) = TrimAlpha(decoded);
                     UnityEngine.Object.DestroyImmediate(decoded);
 
                     cropped.Add(crop);
                     if (crop == null) continue;
 
+                    usableCrops++;
                     maxW = Mathf.Max(maxW, crop.width);
                     maxH = Mathf.Max(maxH, crop.height);
-                    minLeft = Mathf.Min(minLeft, box.xMin);
-                    minTop = Mathf.Min(minTop, box.yMin);
-                    maxRight = Mathf.Max(maxRight, box.xMax);
-                    maxBottom = Mathf.Max(maxBottom, box.yMax);
                 }
 
-                if (maxRight <= 0f)
+                if (usableCrops == 0)
                 {
                     result.HasContent = false;
                     return result;   // 全透明，上游出了问题
