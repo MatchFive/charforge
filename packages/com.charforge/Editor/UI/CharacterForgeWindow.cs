@@ -481,6 +481,8 @@ namespace CharForge.EditorTools.UI
         private async Task ProbeAsync()
         {
             SetBusy(true, "探测后端…");
+            // 徽标此前只在初始化时写一次「未探测」，探测完也不更新——用户会一直以为没测过。
+            if (_backendStatus != null) _backendStatus.text = "探测中…";
             try
             {
                 var ready = new List<string>();
@@ -500,6 +502,9 @@ namespace CharForge.EditorTools.UI
                     Log($"[{(status != null && status.Ready ? "可用" : "不可用")}] {backend.DisplayName} — {status?.Message}");
                     if (status != null && status.Ready) ready.Add(backend.DisplayName);
                 }
+
+                if (_backendStatus != null)
+                    _backendStatus.text = ready.Count > 0 ? $"可用 {ready.Count} 个" : "全部不可用";
 
                 SetStatus(ready.Count > 0
                     ? $"可用后端 {ready.Count} 个：{string.Join("、", ready)}"
@@ -580,9 +585,25 @@ namespace CharForge.EditorTools.UI
         {
             if (_busy) return;
 
-            var request = BuildRequest();
+            // BuildRequest 在 try 之外时，一旦抛异常会被 `() => _ = RunGenerateAsync()`
+            // 整个吞掉——按钮点了没反应、日志里一个字都没有，看起来就像「按钮坏了」。
+            // 表单读取属于可预期失败，必须就地接住并把原因写进窗口日志。
+            JobRequest request;
+            try
+            {
+                request = BuildRequest();
+            }
+            catch (Exception e)
+            {
+                Log($"表单读取失败：{e.GetType().Name}：{e.Message}");
+                SetStatus($"表单读取失败：{e.Message}", "把 Console 里的完整堆栈贴给维护者。");
+                Debug.LogException(e);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(request.Prompt))
             {
+                Log("请先填写角色描述。");
                 SetStatus("请先填写角色描述。", "一句话即可，例如「博物馆导览员，身着青灰色长衫」。");
                 return;
             }
