@@ -229,13 +229,78 @@ namespace CharForge.EditorTools.Services
 
                 // 必须杀整棵树：ComfyUI / uvicorn 都可能再派生 worker，
                 // 只杀父进程会留下占着显存的孤儿（这是同类工具最常见的投诉）。
-                managed.Process.Kill(entireProcessTree: true);
+                KillProcessTree(managed.Process);
                 managed.Process.WaitForExit(5000);
                 Debug.Log($"[CharForge] {reason} 完成。");
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"[CharForge] {reason} 时出错：{e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 杀掉进程及其派生的子进程。
+        ///
+        /// 为什么不直接写 <c>process.Kill(entireProcessTree: true)</c>：
+        /// 该重载只在 .NET Standard 2.1 / .NET Core 3.0+ 存在。当工程的
+        /// Api Compatibility Level 是 .NET Framework 时它会直接编译不过（CS1739），
+        /// 而这一项常随工程模板不同而不同——不能要求用户为了插件去改工程设置。
+        ///
+        /// 所以这里用**反射探测 + 平台回退**：优先用框架自带能力，探测不到就用
+        /// Windows 的 <c>taskkill /T</c> 杀整棵树，最后兜底至少杀掉父进程。
+        /// 三种档位下都能编译，也都能真正清干净子进程。
+        /// </summary>
+        private static void KillProcessTree(Process process)
+        {
+            if (process == null) return;
+
+            // ① 首选：框架自带（.NET Standard 2.1+ / .NET Core 3.0+）
+            try
+            {
+                var killTree = typeof(Process).GetMethod("Kill", new[] { typeof(bool) });
+                if (killTree != null)
+                {
+                    killTree.Invoke(process, new object[] { true });
+                    return;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[CharForge] 调用 Kill(true) 失败，改用回退方案：{e.Message}");
+            }
+
+            // ② 回退：Windows 上用 taskkill /T 把整棵进程树一起结束
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                try
+                {
+                    using (var killer = Process.Start(new ProcessStartInfo("taskkill",
+                               $"/PID {process.Id} /T /F")
+                           {
+                               CreateNoWindow = true,
+                               UseShellExecute = false
+                           }))
+                    {
+                        killer?.WaitForExit(5000);
+                    }
+
+                    if (process.HasExited) return;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[CharForge] taskkill 回退失败：{e.Message}");
+                }
+            }
+
+            // ③ 兜底：至少结束父进程本身
+            try
+            {
+                if (!process.HasExited) process.Kill();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[CharForge] 兜底 Kill 失败：{e.Message}");
             }
         }
 

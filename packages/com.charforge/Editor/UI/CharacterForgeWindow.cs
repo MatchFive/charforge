@@ -410,7 +410,10 @@ namespace CharForge.EditorTools.UI
                 if (info != null && !string.IsNullOrEmpty(info.assetPath))
                 {
                     string candidate = $"{info.assetPath}/Editor/UI/{fileName}";
-                    if (AssetDatabase.LoadAssetAtPath<Object>(candidate) != null) return candidate;
+
+                    // 显式写 UnityEngine.Object：本文件 using 了 System，裸写 Object 会在
+                    // UnityEngine.Object 与 System.Object 之间产生 CS0104 二义。
+                    if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(candidate) != null) return candidate;
                 }
             }
             catch (Exception)

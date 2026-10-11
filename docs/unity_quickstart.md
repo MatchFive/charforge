@@ -11,10 +11,11 @@
 |---|---|---|
 | Unity 版本 | 6000.0 及以上 | `Help > About Unity` |
 | 工程类型 | 2D（模板任意，2D/2D URP 都行） | 有 Sprite 资产即可 |
-| .NET 兼容级别 | **.NET Standard 2.1**（Unity 6 默认值） | `Edit > Project Settings > Player > Other Settings > Api Compatibility Level` |
+| .NET 兼容级别 | **无要求**（.NET Standard 2.1 与 .NET Framework 都已支持） | `Edit > Project Settings > Player > Other Settings > Api Compatibility Level` |
 
-> 兼容级别这一项要确认：本插件用 `Process.Kill(entireProcessTree: true)` 关闭代管的本地服务，
-> 该重载在 .NET Framework 老档位下不存在。若报 `CS1501` 之类的方法签名错误，改回 .NET Standard 2.1。
+> 兼容级别这一项**不需要改**。v0.2.2 起，`Process.Kill(entireProcessTree: true)` 这类
+> 只在 .NET Standard 2.1 存在的重载已改为反射探测 + 平台回退（Windows 下走 `taskkill /T`
+> 杀整棵进程树），因此两种档位都能编译、也都能真正清掉子进程——不为了一个插件去改工程设置。
 
 ---
 
@@ -39,7 +40,7 @@
 
 ### 装完应该看到什么
 
-- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.0`
+- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.2`
 - 顶部菜单多出 **`Window > CharForge 角色资产生成`**
 - **Console 没有红色报错**
 
@@ -100,14 +101,21 @@ Assets/CharForge/<job_id>/
 | `CS0246 找不到 Newtonsoft` | 依赖未解析（多为无网络） | Package Manager 搜索 `com.unity.nuget.newtonsoft-json` 手动安装 |
 | `CS0246 找不到 UnityEditor.U2D.Sprites` | `com.unity.2d.sprite` 缺失 | 手动安装该包；它本应随依赖自动装上 |
 | 程序集引用缺失 `Unity.2D.Animation.Runtime` | 不该发生（有 `defineConstraints` 保护） | 报出来请贴给我，说明可选依赖开关失效 |
-| 方法签名错误（`Kill`、`TaskCompletionSource` 等） | API 兼容级别不是 .NET Standard 2.1 | 按第 0 节改回 |
-| `CS0234 Unity.InferenceEngine 不存在` | 装了 `com.unity.ai.inference`，但插件程序集没有引用它 | v0.2.1 起改为**零引用**（不触碰该包任何类型），不该再出现；若仍报见第 6 节 |
+| `CS0234 Unity.InferenceEngine 不存在` | 装了 `com.unity.ai.inference`，但插件程序集没有引用它 | v0.2.1 起改为**零引用**（不触碰该包任何类型），不该再出现；若仍报见第 7 节 |
 | `CS0246 找不到 ObjectField` | `ObjectField` 是编辑器侧控件，不在 `UnityEngine.UIElements` | v0.2.1 起改用 `UnityEditor.UIElements` 别名，不该再出现 |
+| `CS0104 'Object' 二义`（`UnityEngine.Object` vs `object`） | 文件同时 `using System` 与 `using UnityEngine`，裸写 `Object` | v0.2.2 起已显式写 `UnityEngine.Object`，不该再出现 |
+| `CS0266 无法将 float 隐式转换为 int`（`FrameNormalizer`） | 用 `int` 承接 `Rect.xMin/xMax` | v0.2.2 起已改为 `float`，不该再出现 |
+| `CS0117 FilterMode 没有 Box 成员` | `UnityEngine.FilterMode` 只有 Point / Bilinear / Trilinear | v0.2.2 起改用自实现的按 alpha 加权盒式降采样，不该再出现 |
+| `CS1739 Kill 没有名为 entireProcessTree 的参数` | 工程 Api Compatibility Level 是 .NET Framework | v0.2.2 起改为反射 + `taskkill` 回退，**无需改工程设置**，不该再出现 |
 | 警告 `CS0414 dialogueEndpoint 已赋值但未使用` | 序列化字段缺读取方 | v0.2.1 起已暴露 `DialogueEndpoint` 只读属性，警告消失 |
 | 窗口能开但**样式朴素、没有折叠面板** | UXML 未加载 | 看 Console 的 `[CharForge]` 警告，把路径贴给我（已改为动态解析，理论上不会出现） |
 | 提示「没有可用的推理后端」 | 选了「自动选择」但没配任何后端 | 切到「占位后端」 |
 | `没有解析到任何切片` | manifest 坐标与贴图不匹配 | 用占位后端复现一次并把 `manifest.json` 发我 |
 | prefab 进场景**悬空 / 陷进地面** | 脚底锚点对齐问题 | **W3 范围**，属已知待打磨项 |
+
+> 上表里标「不该再出现」的几条，是已经修掉的历史问题。若仍然报出来，多半是
+> Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
+> 或确认 Package Manager 里的版本号是 `0.2.2`。
 
 ---
 
@@ -167,7 +175,7 @@ Assets/CharForge/<job_id>/
 
 ---
 
-## 6. 下一步
+## 7. 下一步
 
 W1 验收通过后，按 `docs/roadmap.md` 一周一环推进。**铁律：任何一环没有单独验证过，不要往上叠第二环。**
 

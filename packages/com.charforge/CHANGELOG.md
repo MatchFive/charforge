@@ -4,6 +4,52 @@
 
 ---
 
+## [0.2.2] — 2026-10-11
+
+### 修复 · 编辑器内图像处理与进程托管的编译错误
+
+第二轮真机编译暴露的 12 条错误，全部集中在 `FrameNormalizer`（引擎内归一化）与
+`BackendProcessManager`。它们有一个共同特征：**语法合法、API 用错**，因此语法检查无从发现。
+
+- **`FrameNormalizer` 六处 Unity API 用法错误：**
+  - 包围盒累加用 `int` 承接 `Rect.xMin/xMax`（float），触发 4 条 `CS0266`。改为 `float` 成员。
+  - `new Color32(CanvasWidth * CanvasHeight)` 误把数组写成单个结构体——`Color32` 只有
+    `(byte, byte, byte, byte)` 构造。改为 `new Color32[N]`（数组默认值即全透明）。
+  - `FilterMode.Box` 不存在（`UnityEngine.FilterMode` 只有 Point / Bilinear / Trilinear）。
+  - `SetPixels32(src.GetPixels(...))` 把 `Color[]` 喂给了需要 `Color32[]` 的 API。
+    改为直接从已读出的 `Color32[]` 逐行 `Array.Copy`（顺带省掉一次类型转换）。
+- **`BackendProcessManager` 不再依赖 .NET Standard 2.1 专有重载。** `Process.Kill(bool)` 只在
+  .NET Standard 2.1 / .NET Core 3.0+ 存在，工程的 Api Compatibility Level 为 .NET Framework
+  时报 `CS1739`。改为反射探测 + 平台回退（Windows 走 `taskkill /PID x /T /F`，最后兜底
+  `Kill()`）——**三种档位下都能编译，也都真正清掉子进程**，不再要求用户改工程设置。
+- **`CharacterForgeWindow` 的 `Object` 二义（`CS0104`）。** 该文件同时 `using System` 与
+  `using UnityEngine`，裸写 `Object` 会在 `System.Object` 与 `UnityEngine.Object` 间二义。
+  改为显式 `UnityEngine.Object`。
+
+### 修复 · 引擎内图像处理的两处质量问题（编译错误的同源缺陷）
+
+- **`Graphics.Blit` 的缩放过滤参数此前完全没有生效。** Blit 采样时用的是**源纹理**的
+  `filterMode`，而不是目标 RenderTexture 的；原实现只设了 RT，导致 `FilterMode.Point`
+  放大被静默忽略——像素风会被双线性插值糊掉。现在改为设置源纹理并在用完后还原。
+- **像素网格量化改用按 alpha 加权的盒式降采样**（新增 `DownscaleBox`）。原先意图用
+  `FilterMode.Box` 做缩小，但该枚举成员不存在；换成双线性又会在大倍率缩小时只采 4 个纹素，
+  既漏细节、又因透明像素 RGB 为 0 而在轮廓外圈留下黑边（halo）。按 alpha 加权平均可同时
+  解决这两个问题。
+
+### 新增 · 针对此类错误的静态检查
+
+- `scripts/check_unity_api_misuse.py`：静态捕获"语法合法、Unity API 用错"的错误。已接入 CI。
+  当前规则全部来自真实踩过的坑：不存在的枚举成员、错误的参数类型、.NET Framework 档位下
+  不存在的重载、`Object` 二义。脚本会先剥离注释再匹配（不解析字符串字面量，误报可用
+  行内 `// lint:allow` 豁免）。已用历史上真实报错的那几行原文验证可被捕获。
+
+### 文档
+
+- `docs/unity_quickstart.md`：第 0 节不再要求必须把 Api Compatibility Level 改为 .NET Standard 2.1
+  （插件已两种档位通吃）；报错对照表新增本轮四条；修正重复的章节编号。
+
+---
+
 ## [0.2.1] — 2026-10-11
 
 ### 修复 · 首次导入真实 Unity 工程时的编译阻塞

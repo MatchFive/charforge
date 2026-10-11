@@ -1,6 +1,6 @@
 {
   "name": "com.charforge.unity2d",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "displayName": "CharForge 2D Character Pipeline",
   "description": "Unity 6 原生插件：从一句话角色描述与项目画风参考图，在编辑器内直接产出可拖进场景的 2D NPC prefab —— 自动切片、生成 Sprite Library 与 Animator、配置碰撞与寻路、挂载人设与对话组件。推理后端可替换（本地 Sentis / ComfyUI / 自带 Python 服务 / 远端 API）。",
   "unity": "6000.0",

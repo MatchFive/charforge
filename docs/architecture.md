@@ -73,7 +73,11 @@ Unity 官方的 **Sentis / Unity Inference Engine**（`com.unity.ai.inference`�
 1. **自动发现**：探测 127.0.0.1:8188（ComfyUI）/ 127.0.0.1:8000（本仓库 Python 服务），命中就复用，不重复拉起
 2. **按需拉起**：未发现时，若配置了可执行路径则后台拉起，并把 stdout 转发到 Unity Console
 3. **健康检查**：轮询 `/system_stats` 或 `/health`，就绪才允许提交任务
-4. **自动收起**：编辑器退出、空闲超时、或用户点"停止后端"时终止子进程（`Kill(entireProcessTree: true)`）
+4. **自动收起**：编辑器退出、空闲超时、或用户点"停止后端"时终止**整棵进程树**。实现上不写
+   `Kill(entireProcessTree: true)`——该重载只在 .NET Standard 2.1+ 存在，工程的
+   Api Compatibility Level 为 .NET Framework 时会编译不过。改用反射探测该重载，
+   探测不到则在 Windows 上走 `taskkill /PID x /T /F`，最后兜底 `Kill()`：
+   **两种档位都能编译，也都真的清得干净**
 5. **绝不静默失败**：任何一步失败都在窗口里给出**可执行的下一步**（"未检测到 ComfyUI，点此查看安装指引 / 或切换到本地 Sentis 后端"）
 
 ---

@@ -57,6 +57,13 @@ jobs:
       - name: 校验包结构（asmdef / 脚本归属 / 引用 / 资产路径）
         run: python scripts/validate_unity_package.py
 
+      # C# 侧唯一能在 CI 里跑起来的验证：没有 Unity 就没法真正编译，
+      # 但"语法合法、Unity API 用错"这一类错误（不存在的枚举成员、错误的参数类型、
+      # 在 .NET Framework 档位下不存在的重载、Object 二义）可以静态拦下来。
+      # 这三轮真机编译暴露的问题几乎都属于这一类。
+      - name: 检查 Unity API 误用
+        run: python scripts/check_unity_api_misuse.py
+
   schema:
     name: JSON Schema 校验
     runs-on: ubuntu-latest

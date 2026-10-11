@@ -60,7 +60,11 @@ namespace CharForge.EditorTools.Services
             // ── 1. 解码 + 裁切，记录每帧裁切后的纹理与包围盒 ──
             var cropped = new List<Texture2D>();
             int maxW = 1, maxH = 1;
-            int minLeft = int.MaxValue, minTop = int.MaxValue, maxRight = 0, maxBottom = 0;
+
+            // 包围盒成员必须是 float：TrimAlpha 返回的是 Rect，而 Rect.xMin/xMax/yMin/yMax
+            // 都是 float。用 int 承接时，Mathf.Min(int, float) 会匹配到 (float, float) 重载、
+            // 返回 float，赋值回 int 就触发 CS0266。
+            float minLeft = float.MaxValue, minTop = float.MaxValue, maxRight = 0f, maxBottom = 0f;
 
             try
             {
@@ -83,7 +87,7 @@ namespace CharForge.EditorTools.Services
                     maxBottom = Mathf.Max(maxBottom, box.yMax);
                 }
 
-                if (maxRight <= 0)
+                if (maxRight <= 0f)
                 {
                     result.HasContent = false;
                     return result;   // 全透明，上游出了问题
@@ -124,15 +128,20 @@ namespace CharForge.EditorTools.Services
         private byte[] PasteToCanvas(Texture2D crop, float scale, int maxHeight)
         {
             var canvas = new Texture2D(CanvasWidth, CanvasHeight, TextureFormat.RGBA32, false);
-            var clear = new Color32(CanvasWidth * CanvasHeight);
-            for (int i = 0; i < clear.Length; i++) clear[i] = new Color32(0, 0, 0, 0);
-            canvas.SetPixels32(clear);
+
+            // SetPixels32 要的是**数组**。Color32 是 struct，数组默认值就是 (0,0,0,0) 全透明，
+            // 所以直接给一个空数组即可，不需要再逐个赋值。
+            canvas.SetPixels32(new Color32[CanvasWidth * CanvasHeight]);
 
             if (crop != null)
             {
                 int newW = Mathf.Max(1, Mathf.RoundToInt(crop.width * scale));
                 int newH = Mathf.Max(1, Mathf.RoundToInt(crop.height * scale));
-                var scaled = BlitScale(crop, newW, newH);
+
+                // 像素风（PixelGrid > 1）放大必须用 Point，否则插值把像素边缘糊掉，
+                // 后面的网格量化也救不回来（信息已经丢了）。
+                var scaled = BlitScale(crop, newW, newH,
+                    PixelGrid > 1 ? FilterMode.Point : FilterMode.Bilinear);
 
                 int x = (CanvasWidth - newW) / 2;
                 // 脚底对齐：底部留出下边距。maxHeight 参与是为了让不同高矮的角色
@@ -158,7 +167,11 @@ namespace CharForge.EditorTools.Services
             int smallW = Mathf.Max(1, CanvasWidth / grid);
             int smallH = Mathf.Max(1, CanvasHeight / grid);
 
-            var down = BlitScale(tex, smallW, smallH, FilterMode.Box);
+            // 降采样自己算盒式平均，不交给 GPU 的 FilterMode：
+            // UnityEngine.FilterMode 只有 Point / Bilinear / Trilinear，**没有 Box**；
+            // 而双线性在大倍率缩小时只采 4 个纹素，既漏细节、又会把半透明像素的 RGB
+            // 混进来形成一圈黑边。
+            var down = DownscaleBox(tex, smallW, smallH);
             var up = BlitScale(down, CanvasWidth, CanvasHeight, FilterMode.Point);
 
             byte[] outPng = up.EncodeToPNG();
@@ -166,6 +179,59 @@ namespace CharForge.EditorTools.Services
             UnityEngine.Object.DestroyImmediate(down);
             UnityEngine.Object.DestroyImmediate(up);
             return outPng;
+        }
+
+        /// <summary>
+        /// 按 alpha 加权的盒式降采样。
+        ///
+        /// 为什么必须按 alpha 加权：直接平均 RGB 时，全透明像素（RGB 通常为 0）会把边缘拉暗，
+        /// 缩小后的角色轮廓会出现一圈黑边（halo）。按 alpha 加权能把这个伪影消掉，
+        /// 对线稿与像素风都更干净。
+        /// </summary>
+        private static Texture2D DownscaleBox(Texture2D src, int dstW, int dstH)
+        {
+            int sw = src.width, sh = src.height;
+            var srcPx = src.GetPixels32();
+            var dstPx = new Color32[dstW * dstH];
+
+            float xRatio = sw / (float)dstW;
+            float yRatio = sh / (float)dstH;
+
+            for (int y = 0; y < dstH; y++)
+            {
+                int y0 = Mathf.FloorToInt(y * yRatio);
+                int y1 = Mathf.Min(sh, Mathf.Max(y0 + 1, Mathf.CeilToInt((y + 1) * yRatio)));
+
+                for (int x = 0; x < dstW; x++)
+                {
+                    int x0 = Mathf.FloorToInt(x * xRatio);
+                    int x1 = Mathf.Min(sw, Mathf.Max(x0 + 1, Mathf.CeilToInt((x + 1) * xRatio)));
+
+                    int r = 0, g = 0, b = 0, a = 0, n = 0;
+                    for (int sy = y0; sy < y1; sy++)
+                    {
+                        int row = sy * sw;
+                        for (int sx = x0; sx < x1; sx++)
+                        {
+                            var c = srcPx[row + sx];
+                            r += c.r * c.a;
+                            g += c.g * c.a;
+                            b += c.b * c.a;
+                            a += c.a;
+                            n++;
+                        }
+                    }
+
+                    dstPx[y * dstW + x] = a > 0 && n > 0
+                        ? new Color32((byte)(r / a), (byte)(g / a), (byte)(b / a), (byte)(a / n))
+                        : new Color32(0, 0, 0, 0);
+                }
+            }
+
+            var tex = new Texture2D(dstW, dstH, TextureFormat.RGBA32, false);
+            tex.SetPixels32(dstPx);
+            tex.Apply(false, false);
+            return tex;
         }
 
         // ────────────────────────── 工具 ──────────────────────────
@@ -207,7 +273,14 @@ namespace CharForge.EditorTools.Services
             int cw = maxX - minX + 1;
             int ch = maxY - minY + 1;
             var crop = new Texture2D(cw, ch, TextureFormat.RGBA32, false);
-            crop.SetPixels32(src.GetPixels(minX, minY, cw, ch));
+
+            // 从上面已经读出的整图数组里逐行拷贝：Texture2D.GetPixels 返回 Color[]，
+            // 与 SetPixels32 需要的 Color32[] 不同型；而 GetPixels32 没有带 rect 的重载。
+            var cropPx = new Color32[cw * ch];
+            for (int y = 0; y < ch; y++)
+                Array.Copy(px, (minY + y) * w + minX, cropPx, y * cw, cw);
+
+            crop.SetPixels32(cropPx);
             crop.Apply(false, false);
             return (crop, new Rect(minX, minY, cw, ch));
         }
@@ -215,6 +288,11 @@ namespace CharForge.EditorTools.Services
         /// <summary>用 GPU 缩放纹理（Graphics.Blit），比逐像素双线性采样快一个数量级。</summary>
         private static Texture2D BlitScale(Texture2D src, int width, int height, FilterMode filter = FilterMode.Bilinear)
         {
+            // Graphics.Blit 采样时用的是**源纹理**的 filterMode，而不是目标 RT 的。
+            // 所以想让 Point 放大真正生效（像素风不被糊掉），必须改 src。
+            var previousFilter = src.filterMode;
+            src.filterMode = filter;
+
             var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
             rt.filterMode = filter;
             var previous = RenderTexture.active;
@@ -228,6 +306,7 @@ namespace CharForge.EditorTools.Services
 
             RenderTexture.active = previous;
             RenderTexture.ReleaseTemporary(rt);
+            src.filterMode = previousFilter;
             return outTex;
         }
 
