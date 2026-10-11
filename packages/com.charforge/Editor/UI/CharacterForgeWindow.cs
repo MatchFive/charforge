@@ -10,6 +10,10 @@ using CharForge.EditorTools.Services;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
+// ObjectField 属编辑器侧控件（UnityEditor.UIElements），运行时的 UnityEngine.UIElements
+// 里没有它。这里用**别名**而不是再 using 一个命名空间：
+// 不同 Unity 版本对"运行时是否也有 ObjectField"处理不一致，写别名可彻底避免 CS0104 二义性。
+using ObjectField = UnityEditor.UIElements.ObjectField;
 
 namespace CharForge.EditorTools.UI
 {

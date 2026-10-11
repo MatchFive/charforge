@@ -6,15 +6,28 @@ using System.Threading.Tasks;
 using CharForge.EditorTools.Data;
 using UnityEngine;
 
-#if CHARFORGE_SENTIS
-// Sentis 2.4 前后命名空间发生过一次改名（Unity.Sentis ↔ Unity.InferenceEngine）。
-// 这里用包版本定义做一个兼容开关，避免"因为命名空间换了就整个包编不过"。
-#if CHARFORGE_SENTIS_LEGACY_NS
-using Unity.Sentis;
-#else
-using Unity.InferenceEngine;
-#endif
-#endif
+// 这里**刻意不 using** 推理引擎的命名空间。
+//
+// 原因：程序集引用是编译期硬依赖，而 AI 推理包是**可选依赖**——
+// 一旦在本程序集的 references 里写死，没装该包的工程就会报「程序集引用找不到」，
+// 插件连打开都做不到。而 using 一个未被引用的命名空间，同样会直接 CS0234/CS0246。
+// 两者都会把"可选"变成"必须"，这是开源插件最不该犯的错。
+//
+// 本文件目前只用字符串与 Task 描述能力，不触碰推理引擎的任何类型，因此零引用即可编译。
+// 等你开始写真正的扩散流程（下方 GenerateFrameAsync 的 TODO）时，再按下面做：
+//
+//   1. 查清装配名（不同版本不同，别照抄博客）：
+//        Library/PackageCache/com.unity.ai.inference@<版本>/Runtime/*.asmdef
+//      打开这个文件看 "name" 字段。2.2 起通常是 Unity.InferenceEngine；
+//      旧的 com.unity.sentis（≤2.1）则是 Unity.Sentis。
+//   2. 把该装配名加进 Editor/com.charforge.Editor.asmdef 的 "references"。
+//   3. 那时才在文件顶部 using 对应命名空间。
+//
+// 命名空间对应关系（2026 年事实，来源：Unity 官方升级指南）：
+//   com.unity.ai.inference ≥ 2.2  →  using Unity.InferenceEngine;
+//   com.unity.sentis      ≤ 2.1  →  using Unity.Sentis;
+//   包名与命名空间不是一回事：2.4 起包的显示名又改回 "Sentis"，但包 id 仍是
+//   com.unity.ai.inference，命名空间仍是 Unity.InferenceEngine。
 
 namespace CharForge.EditorTools.Backends
 {
@@ -32,7 +45,9 @@ namespace CharForge.EditorTools.Backends
     ///   这一段的实现是**留给使用者的核心工作**（见下方 TODO），本文件只搭好管线骨架。
     ///
     /// 启用方式：在 Package Manager 安装 com.unity.ai.inference（≥2.0），
-    /// 本程序集会自动通过 versionDefine 激活（无需改代码）。
+    /// Editor 程序集会自动通过 versionDefine 点亮 CHARFORGE_SENTIS 宏，本后端随即出现
+    /// （无需改代码、也无需改程序集引用）。装了这个包但还没写实现时，探测会直接告诉你
+    /// 下一步该做什么，而不是静默失败。
     /// </summary>
     public class SentisBackend : IInferenceBackend
     {

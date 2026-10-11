@@ -47,6 +47,11 @@ namespace CharForge.EditorTools.Integrations
             string assetPath = $"{context.AssetDir}/{context.PrefabName}{Suffix}.asset";
             AssetDatabase.DeleteAsset(assetPath);
             AssetDatabase.CreateAsset(asset, assetPath);
+
+            // SetDirty 不能省。SpriteLibraryAsset 的分类/标签存在内部序列化结构里，
+            // 只 CreateAsset + SaveAssets 会出现"当时看得见、重启 Unity 后标签消失"的假成功
+            // （Unity 官方论坛有该问题的实例记录）。标记脏对象才会真正写进 .asset。
+            EditorUtility.SetDirty(asset);
             AssetDatabase.SaveAssets();
 
             // 挂到 prefab 根物体：SpriteLibrary 提供查表能力，SpriteResolver 让根上的

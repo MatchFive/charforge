@@ -48,6 +48,13 @@ namespace CharForge.Runtime
         public int MaxTokens => maxTokens;
         public FacingDirection Facing => facing;
 
+        /// <summary>
+        /// 对话后端地址。留空表示由外部驱动，本组件不主动请求。
+        /// 暴露成只读属性而非仅序列化字段：外部对话后端需要在运行期读它来决定把请求发去哪，
+        /// 也让这个字段的用途在代码里可见（否则只是一个"赋值后没人用"的死字段）。
+        /// </summary>
+        public string DialogueEndpoint => dialogueEndpoint;
+
         /// <summary>人设原文（JSON 字符串）。对话后端可直接使用。</summary>
         public string PersonaJson => personaAsset != null ? personaAsset.text : string.Empty;
 

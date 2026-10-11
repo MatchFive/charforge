@@ -101,6 +101,9 @@ Assets/CharForge/<job_id>/
 | `CS0246 找不到 UnityEditor.U2D.Sprites` | `com.unity.2d.sprite` 缺失 | 手动安装该包；它本应随依赖自动装上 |
 | 程序集引用缺失 `Unity.2D.Animation.Runtime` | 不该发生（有 `defineConstraints` 保护） | 报出来请贴给我，说明可选依赖开关失效 |
 | 方法签名错误（`Kill`、`TaskCompletionSource` 等） | API 兼容级别不是 .NET Standard 2.1 | 按第 0 节改回 |
+| `CS0234 Unity.InferenceEngine 不存在` | 装了 `com.unity.ai.inference`，但插件程序集没有引用它 | v0.2.1 起改为**零引用**（不触碰该包任何类型），不该再出现；若仍报见第 6 节 |
+| `CS0246 找不到 ObjectField` | `ObjectField` 是编辑器侧控件，不在 `UnityEngine.UIElements` | v0.2.1 起改用 `UnityEditor.UIElements` 别名，不该再出现 |
+| 警告 `CS0414 dialogueEndpoint 已赋值但未使用` | 序列化字段缺读取方 | v0.2.1 起已暴露 `DialogueEndpoint` 只读属性，警告消失 |
 | 窗口能开但**样式朴素、没有折叠面板** | UXML 未加载 | 看 Console 的 `[CharForge]` 警告，把路径贴给我（已改为动态解析，理论上不会出现） |
 | 提示「没有可用的推理后端」 | 选了「自动选择」但没配任何后端 | 切到「占位后端」 |
 | `没有解析到任何切片` | manifest 坐标与贴图不匹配 | 用占位后端复现一次并把 `manifest.json` 发我 |
@@ -133,6 +136,34 @@ Assets/CharForge/<job_id>/
 ```
 
 生成的资产目录 `Assets/CharForge/` 是否入库由你决定——建议入库，它是产物、会进 prefab 引用。
+
+**另一件：`.meta` 文件必须入库。** 你是以「Add package from disk」装的本地包，Unity 会在包目录里
+为每个文件生成 `.meta`（本仓库现有 37 个）。它们存的是资产 GUID——不提交，别人拉下来时 Unity 会
+重新生成，GUID 一变，prefab 里的引用就断。所以**别把 `packages/**/*.meta` 加进 `.gitignore`**。
+
+---
+
+## 6. 可选依赖的装配引用（要接引擎内推理时才需要）
+
+本插件对 AI 推理包与 2D Animation 包都是**可选依赖**，但处理方式刻意不同：
+
+| 可选包 | 处理方式 | 原因 |
+|---|---|---|
+| `com.unity.ai.inference` | versionDefine 点亮宏，代码**完全不引用**其程序集 | 目前只用字符串描述能力，不需要它的类型；零引用 = 装不装都能编译 |
+| `com.unity.2d.animation` | 独立的 `CharForge.Editor.SpriteLibrary` 程序集 + `defineConstraints` | 必须用它的类型（`SpriteLibraryAsset`），所以把这类代码整体隔离 |
+
+所以当你开始实现 `SentisBackend.GenerateFrameAsync` 里的扩散流程时，需要**三步**：
+
+1. 查装配名（别照抄博客，版本间改过名）：
+
+   `Library/PackageCache/com.unity.ai.inference@<版本>/Runtime/*.asmdef` → 看 `"name"` 字段。
+   2.2 起通常是 `Unity.InferenceEngine`；旧的 `com.unity.sentis`（≤2.1）是 `Unity.Sentis`。
+2. 把它加进 `packages/com.charforge/Editor/com.charforge.Editor.asmdef` 的 `"references"`。
+3. 那时才在 `SentisBackend.cs` 顶部 `using` 对应命名空间。
+
+> **顺序别反**：先加引用、再写 using。反过来会得到一个"装包前能编、装包后编不过"的错位状态。
+> 另外，**命名空间与包名不是一回事**：2.4 起包的显示名又改回 "Sentis"，但包 id 仍是
+> `com.unity.ai.inference`、命名空间仍是 `Unity.InferenceEngine`。
 
 ---
 
