@@ -32,8 +32,25 @@ namespace CharForge.EditorTools.Services
         public string OutputDir = "";
         public PrefabAssembler.AssembleReport Assemble;
 
+        /// <summary>
+        /// 非致命但用户必须知道的提示（用了规则版角色卡、参考图不生效、某帧被跳过等）。
+        /// 这条链此前是断的：warnings 累积到最后没有任何消费点，等于没写。
+        /// </summary>
+        public List<string> Warnings = new List<string>();
+
         public static PipelineResult Fail(string message, string nextAction = "") =>
             new PipelineResult { Ok = false, Message = message, NextAction = nextAction };
+
+        /// <summary>把流水线途中累积的提示挂到结果上，交给界面显示。</summary>
+        private static PipelineResult WithWarnings(PipelineResult result, List<string> warnings)
+        {
+            if (warnings != null && warnings.Count > 0)
+            {
+                result.Warnings = warnings;
+                if (string.IsNullOrEmpty(result.NextAction)) result.NextAction = warnings[0];
+            }
+            return result;
+        }
     }
 
     /// <summary>
@@ -236,6 +253,15 @@ namespace CharForge.EditorTools.Services
                 ? request.Actions
                 : new List<string> { "idle" };
 
+            // 默认只勾「南/北」时，产出不会有东/西片段——不说清楚，用户会以为四向坏了。
+            if (directions.Count < 4)
+            {
+                warnings.Add(
+                    $"本次只生成 {directions.Count} 个方向（{string.Join("、", directions)}），" +
+                    "其余朝向不会有动画片段，facing 切到那些方向时会没有片段可播；" +
+                    "要验收四向一致性请把东南西北都勾上。");
+            }
+
             // ── [3] 逐帧生成 ──
             var placed = new List<PlacedFrame>();
             int total = directions.Count * actions.Count * framesPerClip;
@@ -292,7 +318,9 @@ namespace CharForge.EditorTools.Services
             }
 
             if (placed.Count == 0)
-                return PipelineResult.Fail("一帧都没生成出来。", "先用占位后端验证链路，再排查具体后端的出图问题。");
+                return WithWarnings(
+                    PipelineResult.Fail("一帧都没生成出来。", "先用占位后端验证链路，再排查具体后端的出图问题。"),
+                    warnings);
 
             // ── [5] 归一化（引擎内）──
             report("normalize", 72f, "归一化：统一缩放 / 脚底锚点 / 像素网格…");
@@ -348,14 +376,14 @@ namespace CharForge.EditorTools.Services
             report("assemble", 94f, "装配 prefab…");
             var assembly = await AssembleOnMainThreadAsync(outDir).ConfigureAwait(false);
 
-            return new PipelineResult
+            return WithWarnings(new PipelineResult
             {
                 Ok = assembly.ok,
                 Message = assembly.ok ? "完成" : "装配失败",
                 NextAction = assembly.ok ? "" : "看 Console 里的装配日志。",
                 OutputDir = outDir,
                 Assemble = assembly
-            };
+            }, warnings);
         }
 
         private static Task<PrefabAssembler.AssembleReport> AssembleOnMainThreadAsync(string jobDir) =>

@@ -199,24 +199,24 @@ namespace CharForge.EditorTools.UI
             _prompt = new TextField("角色描述")
             {
                 multiline = true,
-                value = "博物馆导览员，身着素雅青灰色长衫，手持讲解册，神态温和"
+                value = CharForgeSettings.Prompt
             };
             _prompt.style.minHeight = 64;
             _prompt.AddToClassList("cf-field");
             host.Add(_prompt);
 
-            _charName = new TextField("角色名（可选）") { value = "" };
+            _charName = new TextField("角色名（可选）") { value = CharForgeSettings.CharacterName };
             _charName.tooltip = "留空则由后端或本地规则推断。想得到「云叔」这种名字建议直接填。";
             host.Add(_charName);
 
-            _era = new TextField("年代 / 形制约束（文博场景）") { value = "" };
+            _era = new TextField("年代 / 形制约束（文博场景）") { value = CharForgeSettings.EraOrPeriod };
             _era.tooltip = "例如「南宋」。会影响提示词与知识边界，防止把宋代器型画成明代样式。";
             host.Add(_era);
 
             _refNotes = new TextField("藏品档案 / 考据要点（可选）")
             {
                 multiline = true,
-                value = ""
+                value = CharForgeSettings.ReferenceNotes
             };
             _refNotes.style.minHeight = 48;
             _refNotes.tooltip = "会进入人设的「知识边界」，让 NPC 只依据资料回答，避免史实硬伤。";
@@ -639,6 +639,13 @@ namespace CharForge.EditorTools.UI
                     OnPipelineProgress,
                     _cts.Token);
 
+                // 提示必须在成功时也显示：「用的是规则版角色卡」「参考图不生效」这类信息
+                // 决定了产出能不能被采信，不能只在失败时才让人看见。
+                if (result.Warnings != null)
+                {
+                    foreach (var w in result.Warnings) Log($"提示：{w}");
+                }
+
                 if (result.Ok && result.Assemble != null && result.Assemble.ok)
                 {
                     _lastOutputDir = result.OutputDir;
@@ -718,6 +725,13 @@ namespace CharForge.EditorTools.UI
 
         private JobRequest BuildRequest()
         {
+            // 生成即落盘：这些字段决定 persona.json 的知识边界，重开窗口不该让它们静默消失。
+            // 角色描述留空时不覆盖，否则默认示例会被一次误清空永久抹掉。
+            if (!string.IsNullOrWhiteSpace(_prompt.value)) CharForgeSettings.Prompt = _prompt.value;
+            CharForgeSettings.CharacterName = _charName.value;
+            CharForgeSettings.EraOrPeriod = _era.value;
+            CharForgeSettings.ReferenceNotes = _refNotes.value;
+
             var actions = new List<string>();
             if (_actIdle.value) actions.Add("idle");
             if (_actWalk.value) actions.Add("walk");

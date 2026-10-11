@@ -40,7 +40,7 @@
 
 ### 装完应该看到什么
 
-- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.2`
+- Package Manager 出现 **CharForge 2D Character Pipeline** `0.2.3`
 - 顶部菜单多出 **`Window > CharForge 角色资产生成`**
 - **Console 没有红色报错**
 
@@ -112,10 +112,11 @@ Assets/CharForge/<job_id>/
 | 提示「没有可用的推理后端」 | 选了「自动选择」但没配任何后端 | 切到「占位后端」 |
 | `没有解析到任何切片` | manifest 坐标与贴图不匹配 | 用占位后端复现一次并把 `manifest.json` 发我 |
 | prefab 进场景**悬空 / 陷进地面** | 脚底锚点对齐问题 | **W3 范围**，属已知待打磨项 |
+| 碰撞体明显盖住角色 / 横向偏到一侧 | v0.2.3 之前，包围盒取自缩放前的源图空间（偏大 `1/scale`≈17%，且横向中心错位） | v0.2.3 起改为按画布落位求并集，重新生成即可；已产出的 prefab 需重跑 |
 
 > 上表里标「不该再出现」的几条，是已经修掉的历史问题。若仍然报出来，多半是
 > Package Manager 缓存了旧版本——`Window > Package Manager > CharForge > 右键 > Reimport`，
-> 或确认 Package Manager 里的版本号是 `0.2.2`。
+> 或确认 Package Manager 里的版本号是 `0.2.3`（或更高）。
 
 ### 怎么判断是「旧错误残留」还是「真的还在报」
 

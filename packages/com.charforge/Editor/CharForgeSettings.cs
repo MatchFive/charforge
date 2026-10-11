@@ -107,5 +107,39 @@ namespace CharForge.EditorTools
             get => GetInt("FramesPerClip", 4);
             set => SetInt("FramesPerClip", Mathf.Clamp(value, 2, 8));
         }
+
+        // ── 表单输入（② 角色描述区）────────────────────────────
+        //
+        // 为什么要持久化：这些字段此前只活在窗口实例里，重开窗口就被重置回默认值，
+        // 而「年代 / 形制约束」「藏品档案 / 考据要点」正是 persona.json 里【知识边界】的
+        // 唯一来源。静默清空会直接导致产出的人设丢掉文博考据——画面看不出来，
+        // 只有翻开 persona.json 才发现知识边界是空的。
+        public const string DefaultPrompt = "博物馆导览员，身着素雅青灰色长衫，手持讲解册，神态温和";
+
+        public static string Prompt
+        {
+            get => Get("Prompt", DefaultPrompt);
+            set => Set("Prompt", value ?? "");
+        }
+
+        public static string CharacterName
+        {
+            get => Get("CharacterName", "");
+            set => Set("CharacterName", value ?? "");
+        }
+
+        /// <summary>年代 / 形制约束，例如「南宋」。进提示词，也进人设知识边界。</summary>
+        public static string EraOrPeriod
+        {
+            get => Get("EraOrPeriod", "");
+            set => Set("EraOrPeriod", value ?? "");
+        }
+
+        /// <summary>藏品档案 / 考据要点。进 persona.json 的【知识边界】。</summary>
+        public static string ReferenceNotes
+        {
+            get => Get("ReferenceNotes", "");
+            set => Set("ReferenceNotes", value ?? "");
+        }
     }
 }

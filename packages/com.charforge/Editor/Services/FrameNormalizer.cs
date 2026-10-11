@@ -39,7 +39,10 @@ namespace CharForge.EditorTools.Services
         {
             public List<byte[]> Frames = new List<byte[]>();
 
-            /// <summary>所有帧的可视包围盒并集（像素），用于反算角色在世界单位的尺寸。</summary>
+            /// <summary>
+            /// 归一化**之后**、在最终画布坐标系里的可视包围盒（像素）。
+            /// 用于反算角色在世界单位的尺寸，进而生成贴合轮廓的碰撞体。
+            /// </summary>
             public Rect BoundsPixels;
 
             /// <summary>是否至少有一帧含非透明像素。</summary>
@@ -94,7 +97,6 @@ namespace CharForge.EditorTools.Services
                 }
 
                 result.HasContent = true;
-                result.BoundsPixels = new Rect(minLeft, minTop, maxRight - minLeft, maxBottom - minTop);
 
                 // ── 2. 统一 scale：以最大的那一帧为基准，保证谁都不会超出可用区 ──
                 float usableW = CanvasWidth * (1f - MarginRatio * 2f);
@@ -102,10 +104,31 @@ namespace CharForge.EditorTools.Services
                 float scale = Mathf.Min(usableW / maxW, usableH / maxH);
 
                 // ── 3. 逐帧缩放 + 贴到统一画布（水平居中、脚底对齐）──
+                //
+                // 包围盒必须在这里量，而不是在裁切阶段量。原因：
+                //   (a) 统一 scale 会改变角色在最终画布上的占比。拿缩放前的尺寸去算碰撞体，
+                //       会整体放大 1/scale 倍——本仓实测为 1.172（偏大 17%），碰撞体明显盖住角色。
+                //   (b) 裁切阶段的坐标是"源图空间"，而碰撞体的偏移是相对画布中心定义的；
+                //       两者只在"源图恰好等于画布尺寸"时相等，换个后端（如 ComfyUI 出 1024）
+                //       就会整体错位。这里改为记录每帧实际贴到画布上的矩形并求并集。
+                var placed = new Rect(0f, 0f, 0f, 0f);
+                bool hasPlaced = false;
+
                 foreach (var crop in cropped)
                 {
-                    result.Frames.Add(PasteToCanvas(crop, scale, maxH));
+                    result.Frames.Add(PasteToCanvas(crop, scale, maxH, out var rect));
+                    if (rect.width <= 0f || rect.height <= 0f) continue;
+                    placed = hasPlaced ? Union(placed, rect) : rect;
+                    hasPlaced = true;
                 }
+
+                if (!hasPlaced)
+                {
+                    result.HasContent = false;
+                    return result;
+                }
+
+                result.BoundsPixels = placed;
 
                 // ── 4. 像素网格量化（整批一起做，保持网格相位一致）──
                 if (PixelGrid > 1)
@@ -125,13 +148,15 @@ namespace CharForge.EditorTools.Services
 
         // ────────────────────────── 单帧步骤 ──────────────────────────
 
-        private byte[] PasteToCanvas(Texture2D crop, float scale, int maxHeight)
+        private byte[] PasteToCanvas(Texture2D crop, float scale, int maxHeight, out Rect placedRect)
         {
             var canvas = new Texture2D(CanvasWidth, CanvasHeight, TextureFormat.RGBA32, false);
 
             // SetPixels32 要的是**数组**。Color32 是 struct，数组默认值就是 (0,0,0,0) 全透明，
             // 所以直接给一个空数组即可，不需要再逐个赋值。
             canvas.SetPixels32(new Color32[CanvasWidth * CanvasHeight]);
+
+            placedRect = new Rect(0f, 0f, 0f, 0f);
 
             if (crop != null)
             {
@@ -151,12 +176,25 @@ namespace CharForge.EditorTools.Services
 
                 canvas.SetPixels32(x, y, newW, newH, scaled.GetPixels32());
                 UnityEngine.Object.DestroyImmediate(scaled);
+
+                // 回传实际落位，供上层求"内容包围盒"——这是碰撞体的唯一尺寸来源。
+                placedRect = new Rect(x, y, newW, newH);
             }
 
             canvas.Apply(false, false);
             byte[] png = canvas.EncodeToPNG();
             UnityEngine.Object.DestroyImmediate(canvas);
             return png;
+        }
+
+        /// <summary>两个矩形的最小并集。</summary>
+        private static Rect Union(Rect a, Rect b)
+        {
+            float xMin = Mathf.Min(a.xMin, b.xMin);
+            float yMin = Mathf.Min(a.yMin, b.yMin);
+            float xMax = Mathf.Max(a.xMax, b.xMax);
+            float yMax = Mathf.Max(a.yMax, b.yMax);
+            return new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
         }
 
         private byte[] QuantizeToGrid(byte[] png, int grid)
