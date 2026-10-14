@@ -1,6 +1,6 @@
 {
   "name": "com.charforge.unity2d",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "displayName": "CharForge 2D Character Pipeline",
   "description": "Unity 6 原生编辑器插件，三步产出可拖进场景的 2D NPC prefab：① 用角色描述（可选接外部 OpenAI 兼容 LLM 锻造提示词）或直接上传立绘，在本机 ComfyUI 出图；② 按勾选的「动作 × 朝向」，用姿势参考图库逐帧动作模仿生成行走帧；③ 一键组装 prefab —— 自动切片、按全部帧并集算脚底 pivot、配贴合碰撞体与 Animator 状态机。",
   "unity": "6000.0",

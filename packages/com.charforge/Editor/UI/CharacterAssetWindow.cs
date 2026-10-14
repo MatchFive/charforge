@@ -47,6 +47,9 @@ namespace CharForge.EditorTools.UI
         private TextField _charName;
         private TextField _description;
         private TextField _prompt;
+        private DropdownField _aspect;
+        private DropdownField _longEdge;
+        private Label _sizeInfo;
         private TextField _portraitPath;
         private Button _btnForge, _btnPortrait, _btnLoadPortrait;
         private Label _status1;
@@ -402,6 +405,37 @@ namespace CharForge.EditorTools.UI
             fold.style.marginTop = 8;
             root.Add(fold);
 
+            // 出图尺寸（v0.6.3）：比例在生成期就调好，交付端 Lanczos 只做等比缩放。
+            var sizeRow = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            _aspect = new DropdownField("出图比例", new List<string> { "1:1", "2:3", "3:4" },
+                CharForgeSettings.PortraitAspect);
+            _aspect.tooltip =
+                "立绘画幅。2:3 / 3:4 是 2.5D 角色立绘的主流画幅，1:1 适合头像/卡牌。\n" +
+                "生成期就把 latent 分辨率调到对应比例（1MP 基准、8 倍数），交付端 Lanczos 等比缩放——两段比例一致，永不硬拉伸。\n" +
+                "只作用于立绘；帧动画画布保持 1:1（VNCCS 链不碰）。";
+            _aspect.RegisterValueChangedCallback(e =>
+            {
+                CharForgeSettings.PortraitAspect = e.newValue;
+                UpdateSizeInfo();
+            });
+            sizeRow.Add(_aspect);
+
+            _longEdge = new DropdownField("目标长边", new List<string> { "256", "384", "512", "768", "1024" },
+                CharForgeSettings.TargetLongEdge.ToString());
+            _longEdge.tooltip = "交付图的长边（像素）。生成图按等比缩到这条边；游戏内美术资产通常用不着 1024。";
+            _longEdge.RegisterValueChangedCallback(e =>
+            {
+                if (int.TryParse(e.newValue, out int v)) CharForgeSettings.TargetLongEdge = v;
+                UpdateSizeInfo();
+            });
+            sizeRow.Add(_longEdge);
+            fold.Add(sizeRow);
+
+            _sizeInfo = new Label { style = { whiteSpace = WhiteSpace.Normal, marginTop = 2, marginBottom = 6 } };
+            _sizeInfo.style.color = new Color(0.6f, 0.7f, 0.6f);
+            fold.Add(_sizeInfo);
+            UpdateSizeInfo();
+
             _comfyUrl = new TextField("ComfyUI 地址") { value = CharForgeSettings.ComfyUiUrl };
             _comfyUrl.tooltip = "ComfyUI Desktop 默认 8000；通用教程里的 8188 在 Desktop 版上是空的。" +
                                 "若同一端口上还跑着别的本地服务（写 127.0.0.1 会被它抢答），" +
@@ -467,6 +501,25 @@ namespace CharForge.EditorTools.UI
             AddHint(fold,
                 "插件无论如何都会先剥一遍 <think> 思考块；这个开关是从源头省掉那一步。" +
                 "不认这个字段的网关会忽略它，严格些的可能因未知参数报 400 —— 遇到就把它关掉。");
+        }
+
+        /// <summary>出图尺寸预览：生成分辨率（8 倍数）与交付分辨率（目标长边）实时算给用户看。</summary>
+        private void UpdateSizeInfo()
+        {
+            if (_sizeInfo == null) return;
+            try
+            {
+                CharacterAssetService.ComputeOutputSizes(
+                    CharForgeSettings.PortraitAspect, CharForgeSettings.TargetLongEdge,
+                    out int genW, out int genH, out int outW, out int outH);
+                _sizeInfo.text =
+                    $"立绘：生成 {genW}×{genH} → Lanczos 等比 → 交付 {outW}×{outH}。" +
+                    "帧动画画布保持 1:1，不受此设置影响。";
+            }
+            catch (Exception e)
+            {
+                _sizeInfo.text = "⚠ " + e.Message;
+            }
         }
 
         private static void AddHint(VisualElement host, string text)

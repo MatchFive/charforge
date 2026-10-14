@@ -108,6 +108,27 @@ namespace CharForge.EditorTools
             set => SetInt("FramesPerClip", Mathf.Clamp(value, 2, 8));
         }
 
+        // ── 出图尺寸（v0.6.3）────────────────────────────────
+        //
+        // 两段式：**生成期**把立绘工作流的分辨率调成对应比例（Qwen 原生 ~1MP 基准，
+        // 8 倍数）；**收割后**再 Lanczos 等比缩放到目标长边。两段比例一致，缩放永远
+        // 是等比的——不会出现「生成 1:1、交付 2:3」这种硬拉伸。
+        // 2:3 / 3:4 是 2.5D 角色立绘的主流画幅（实测样本 768×1024、1024×1536），
+        // 1:1 留给头像/卡牌类资产。
+        /// <summary>立绘画幅："1:1" / "2:3" / "3:4"。</summary>
+        public static string PortraitAspect
+        {
+            get => Get("PortraitAspect", "1:1");
+            set => Set("PortraitAspect", value ?? "1:1");
+        }
+
+        /// <summary>交付图长边（像素）。生成图按等比缩到这条边。帧动画画布不受影响。</summary>
+        public static int TargetLongEdge
+        {
+            get => GetInt("TargetLongEdge", 1024);
+            set => SetInt("TargetLongEdge", Mathf.Clamp(value, 128, 2048));
+        }
+
         // ── 表单输入（第 1 步 · 立绘）──────────────────────────
         //
         // 为什么要持久化：这些字段此前只活在窗口实例里，重开窗口就被重置回默认值——

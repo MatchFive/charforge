@@ -37,6 +37,14 @@ namespace CharForge.EditorTools.Services
         public int Seed;
         /// <summary>实际送进 ComfyUI 的提示词——与界面上显示的那串是同一段字符。</summary>
         public string Prompt = "";
+
+        // ── 出图尺寸（v0.6.3）──
+        /// <summary>扩散期实际用的分辨率（比例一致、8 倍数、约 1MP）。</summary>
+        public int GenWidth;
+        public int GenHeight;
+        /// <summary>Lanczos 等比缩放后的交付尺寸（长边 = TargetLongEdge）。</summary>
+        public int OutWidth;
+        public int OutHeight;
     }
 
     /// <summary>
@@ -208,9 +216,101 @@ namespace CharForge.EditorTools.Services
             SetNode(wf, bind.Positive, bind.PositiveInput, final);
             SetNode(wf, bind.Seed, "seed", seed);
 
+            // 出图尺寸（v0.6.3）：生成期就把 latent 分辨率调到与目标一致的画幅——
+            // 交付端的 Lanczos 缩放因此永远是等比的，不存在硬拉伸。
+            // bindings 未配 size_node 的工作流完全不碰尺寸（向后兼容，帧动画链就不碰）。
+            ComputeOutputSizes(CharForgeSettings.PortraitAspect, CharForgeSettings.TargetLongEdge,
+                out int genW, out int genH, out int outW, out int outH);
+            bool sized = !string.IsNullOrEmpty(bind.SizeNode);
+            if (sized)
+            {
+                // 与 seed 同类的有意写入：顶掉节点 5 上来自 ResolutionSelector 的链接。
+                SetNode(wf, bind.SizeNode, "width", genW);
+                SetNode(wf, bind.SizeNode, "height", genH);
+                log?.Invoke($"出图尺寸：生成 {genW}×{genH}（{CharForgeSettings.PortraitAspect}，1MP 基准）" +
+                            $"→ Lanczos 等比 → 交付 {outW}×{outH}");
+            }
+
             log?.Invoke($"生成立绘（seed {seed}，约 20-40 秒）…");
             byte[] png = await RunWorkflowAsync(wf, 600, log, ct).ConfigureAwait(false);
-            return new PortraitResult { Png = png, Seed = seed, Prompt = final };
+            if (sized)
+            {
+                int tw = outW, th = outH;
+                png = await EditorMainThread
+                    .RunAsync(() => ResamplePng(png, tw, th))
+                    .ConfigureAwait(false);
+            }
+            return new PortraitResult
+            {
+                Png = png,
+                Seed = seed,
+                Prompt = final,
+                GenWidth = sized ? genW : 0,
+                GenHeight = sized ? genH : 0,
+                OutWidth = sized ? outW : 0,
+                OutHeight = sized ? outH : 0,
+            };
+        }
+
+        // ────────────────────────── 出图尺寸（v0.6.3） ──────────────────────────
+
+        /// <summary>
+        /// 由画幅与目标长边算出（生成尺寸, 交付尺寸）。
+        /// 生成尺寸复刻 ComfyUI 内置 ResolutionSelector 的公式：1MP 总面积按比例分配、
+        /// 取 8 的倍数（2:3 → 840×1256，3:4 → 592×888，1:1 → 1024×1024）——
+        /// Qwen-Image-2.1 的建议下限约 1MP，低于它构图会塌。
+        /// 交付尺寸 = 生成尺寸等比缩到长边 = <paramref name="longEdge"/>，短边取偶（YUV/压缩友好）。
+        /// </summary>
+        public static void ComputeOutputSizes(
+            string aspect, int longEdge, out int genW, out int genH, out int outW, out int outH)
+        {
+            var parts = (aspect ?? "1:1").Split(':');
+            if (parts.Length != 2 || !int.TryParse(parts[0], out int rw) || !int.TryParse(parts[1], out int rh)
+                || rw <= 0 || rh <= 0)
+                throw new InvalidOperationException($"画幅「{aspect}」不合法——期望形如 1:1 / 2:3 / 3:4。");
+
+            const double megapixels = 1.0;
+            const int multiple = 8;
+            double scale = Math.Sqrt(megapixels * 1024 * 1024 / ((double)rw * rh));
+            genW = (int)Math.Round(rw * scale / multiple) * multiple;
+            genH = (int)Math.Round(rh * scale / multiple) * multiple;
+
+            int genLong = Math.Max(genW, genH);
+            double k = (double)Mathf.Clamp(longEdge, 128, 2048) / genLong;
+            outW = Math.Max(2, Mathf.RoundToInt((float)(genW * k)) & ~1);
+            outH = Math.Max(2, Mathf.RoundToInt((float)(genH * k)) & ~1);
+        }
+
+        /// <summary>
+        /// Lanczos 等比重采样一张 PNG。**只准在主线程调**（Texture2D 编解码），调用点已封送；
+        /// 目标尺寸与当前一致时原样返回，不重编码（无损捷径）。
+        /// </summary>
+        private static byte[] ResamplePng(byte[] png, int dstW, int dstH)
+        {
+            var tex = Decode(png);
+            int w = tex.width, h = tex.height;
+            if (w == dstW && h == dstH)
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+                return png;
+            }
+            if (w < dstW || h < dstH)
+            {
+                // 放大是信息造假，且往往意味着「生成期比例没跟上」——当场喊出来而不是悄悄插值。
+                UnityEngine.Object.DestroyImmediate(tex);
+                throw new InvalidOperationException(
+                    $"交付尺寸 {dstW}×{dstH} 大于生成尺寸 {w}×{h}——生成期分辨率没跟上目标画幅，检查 size_node 绑定。");
+            }
+
+            var src = tex.GetPixels32();
+            var dst = LanczosResampler.Resample(src, w, h, dstW, dstH);
+            UnityEngine.Object.DestroyImmediate(tex);
+
+            var outTex = new Texture2D(dstW, dstH, TextureFormat.RGBA32, false);
+            outTex.SetPixels32(dst);
+            byte[] outPng = outTex.EncodeToPNG();
+            UnityEngine.Object.DestroyImmediate(outTex);
+            return outPng;
         }
 
         // ────────────────────────── 第 2 步：帧动画（keep_pose 动作模仿） ──────────────────────────
@@ -551,6 +651,12 @@ namespace CharForge.EditorTools.Services
             public string PoseCopyPrompt;
             /// <summary>按方向放大肢体摆动角（背面/正面步伐投影信号弱，见 bindings 注释）。缺省方向 = 1.0。</summary>
             public Dictionary<string, double> PoseAmplifyByDirection = new Dictionary<string, double>();
+            /// <summary>
+            /// 出图尺寸的注入目标节点 id（v0.6.3，bindings 的 <c>size_node</c>）。
+            /// 该节点的 <c>width</c>/<c>height</c> 输入会被插件按「高级设置」的比例
+            /// **有意替换成字面量**（顶掉原链接——与 seed 同一类写入）。未配置则完全不碰尺寸。
+            /// </summary>
+            public string SizeNode;
 
             public double PoseAmplifyFor(string direction)
             {
@@ -598,6 +704,7 @@ namespace CharForge.EditorTools.Services
                 PoseDataNode = (string)json["pose_data_node"],
                 PoseCopyPromptNode = (string)json["pose_copy_prompt_node"],
                 PoseCopyPrompt = (string)json["pose_copy_prompt"],
+                SizeNode = (string)json["size_node"],
             };
             if (json["pose_amplify_by_direction"] is JObject amp)
                 foreach (var kv in amp.Properties())

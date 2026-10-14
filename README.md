@@ -1,7 +1,7 @@
 # CharForge · Unity 6 原生 2D 角色资产流水线
 
 ![Unity](https://img.shields.io/badge/Unity-6000.0%2B-black?logo=unity)
-![版本](https://img.shields.io/badge/版本-0.6.2-blue)
+![版本](https://img.shields.io/badge/版本-0.6.3-blue)
 ![许可](https://img.shields.io/badge/代码许可-MIT-green)
 ![平台](https://img.shields.io/badge/平台-Windows-lightgrey)
 ![ComfyUI](https://img.shields.io/badge/后端-ComfyUI-important)
@@ -130,6 +130,7 @@ keep_pose 工作流改造自 [RunComfy · Qwen-Image-2.1 VNCCS Pose Control](htt
 3. 准备姿势参考库：<Unity 工程根>/CharForge/comfyui/pose_refs/<动作>/<朝向>/*.png
    （照片级姿势参考；一个目录一组帧，文件名排序即播放顺序）
 4. 第 ① 步：填角色名 + 一句角色描述 →「锻造提示词」→「生成角色立绘」
+   （画幅在「高级设置 → 出图尺寸」里调：1:1 / 2:3 / 3:4 + 目标长边，生成期按比例出图、交付端 Lanczos 等比缩放）
 5. 第 ② 步：在「动作 × 朝向」矩阵勾格 →「生成勾选的帧动画」
 6. 第 ③ 步：「组装 prefab」→ Assets/CharForge/<角色名>/ 里的 prefab 拖进场景即可
 ```

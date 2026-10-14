@@ -4,22 +4,16 @@
   "negative": "6",
   "negative_input": "negative_prompt",
   "seed": "8",
-
   "prompt_parts": {
     "alpha_hint": "This is an RGBA image with transparency. The image has alpha channel and the background is transparent.",
     "style_prefix": "华丽精致的半写实厚涂画风的2D游戏角色立绘：光影层次细腻，体积感与材质感明确（布料、皮革、金属、木料各自成色），服饰纹样与随身饰件细节丰富，轮廓带边缘光，整体华丽而有层次；不要扁平色块，不要写实照片质感。",
     "layout_suffix": "全身立绘，正面站立。无背景，无地面，无投影，脚下是看不见的地面。"
   },
-
   "_note_origin": "本工作流由 ComfyUI 官方模板「Qwen-Image-2.1 Text to Image」导出的 API 格式整理而来，主链路已在本机 RTX 4070 Ti SUPER 16 GB 上实测出图。相对官方导出件的改动只有三处：剔除提示词增强器分支、节点重编号为 1-10、filename_prefix 改为 charforge/qwen21。生成链本身一字未动。",
-
   "_note_prompt_parts": "固定件（透明底句 + 画风前缀 + 版式后缀）的**机器可读副本**，供插件之外的下游（npcforge Agent、脚本、CI）原样复用。插件窗口自己走 PromptForgeService.Compose()，不读这里。最终提示词 = alpha_hint + ' ' + style_prefix + 角色本体 + '。' + layout_suffix。为什么必须有这一份：提示词一旦被下游**整体覆盖**（比如外部程序直接往正节点写字符串），透明底句与画风就会被顶掉——症状是输出 100% 实心、没有 alpha 通道的图，而后续按 alpha 裁切的那一步会静默按整张图算包围盒。v0.5.15 已经在 keep_pose 那条链上吃过一次同样的亏（见 charforge_keepose_pose.bindings.json 的 _note_pose_copy_prompt）。⚠ 三处必须一致：本文件、PromptForgeService.cs 的三个 const、以及工作流节点 6 的默认提示词。用 `python scripts/check_prompt_parts.py` 校验，它对不上会报错。",
-
-  "_note_width_height": "刻意不绑 width/height。尺寸由节点 4（ResolutionSelector：1:1 / 1 MP）输出 1024×1024，插件再交给 FrameNormalizer 缩到 512 画布。绑上就会把节点 5 的链接替换成字面量，等于逼 Qwen 用 512 出图——512×512 只有 26 万像素，低于它建议的 100 万像素下限。要改分辨率请改节点 4 的 megapixels。",
-
+  "_note_width_height": "v0.6.3 起由插件**有意绑定**：size_node 指向节点 5（EmptyLatentImage），每次提交按「高级设置 → 出图尺寸」把 width/height 替换成与目标画幅一致的 8 倍数分辨率（1MP 基准：1:1→1024×1024，2:3→840×1256，3:4→592×888），**有意顶掉节点 4 ResolutionSelector 的链接**——与 seed 同类写入。收割后插件再 Lanczos 等比缩到目标长边，两段比例一致、永无硬拉伸。bindings 未配 size_node 的工作流（如 keep_pose 帧动画链）完全不碰尺寸。旧版注释警告过「绑 width/height 会把链接替换成字面量」——那说的是无意的、不知情的绑定；这里是知情的、带日志的替换（窗口日志会打「出图尺寸：生成 …×… → 交付 …×…」）。",
   "_note_negative_inert": "cfg=1.0 是 Flow Matching 的标配，此档位下 negative_prompt 不生效（官方模板同样留空）。这里仍然绑上，是为了你把 cfg 调高时负向能立即起作用。",
-
   "_note_no_pe": "官方模板带一个提示词增强器（另一个 9B 模型：qwen3.5_9b_qwen_image_2.1_pe_t2i），本工作流已整段移除。两个理由：一是它会把中文描述改写成英文段落，反而丢掉「素雅青灰长衫」「补丁皮甲」这类具体服饰与配色词的精度，而 Qwen3-VL 本来就支持中文直入；二是 16 GB 上主链路 13.3 GiB 再加一支 9B 编码器必然换页。另外本流水线的角色描述**刻意不写年代、朝代与藏品档案**（这类内容不改变像素，只会把提示词带偏），所以也根本不需要一个专做考据词改写的增强器。",
-
-  "_note_no_load_image": "本工作流不含 ControlNet，所以没有 load_image 绑定——姿势锁定靠另接 Qwen-Image-2.1-Fun-ControlNet-Union，其 ComfyUI 支持尚未并入稳定版，详见同目录 qwen_image_21.md。"
+  "_note_no_load_image": "本工作流不含 ControlNet，所以没有 load_image 绑定——姿势锁定靠另接 Qwen-Image-2.1-Fun-ControlNet-Union，其 ComfyUI 支持尚未并入稳定版，详见同目录 qwen_image_21.md。",
+  "size_node": "5"
 }
