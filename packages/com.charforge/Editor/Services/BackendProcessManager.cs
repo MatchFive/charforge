@@ -231,11 +231,11 @@ namespace CharForge.EditorTools.Services
                 // 只杀父进程会留下占着显存的孤儿（这是同类工具最常见的投诉）。
                 KillProcessTree(managed.Process);
                 managed.Process.WaitForExit(5000);
-                Debug.Log($"[CharForge] {reason} 完成。");
+                UnityEngine.Debug.Log($"[CharForge] {reason} 完成。");
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[CharForge] {reason} 时出错：{e.Message}");
+                UnityEngine.Debug.LogWarning($"[CharForge] {reason} 时出错：{e.Message}");
             }
         }
 
@@ -267,7 +267,7 @@ namespace CharForge.EditorTools.Services
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[CharForge] 调用 Kill(true) 失败，改用回退方案：{e.Message}");
+                UnityEngine.Debug.LogWarning($"[CharForge] 调用 Kill(true) 失败，改用回退方案：{e.Message}");
             }
 
             // ② 回退：Windows 上用 taskkill /T 把整棵进程树一起结束
@@ -289,7 +289,7 @@ namespace CharForge.EditorTools.Services
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[CharForge] taskkill 回退失败：{e.Message}");
+                    UnityEngine.Debug.LogWarning($"[CharForge] taskkill 回退失败：{e.Message}");
                 }
             }
 
@@ -300,7 +300,7 @@ namespace CharForge.EditorTools.Services
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[CharForge] 兜底 Kill 失败：{e.Message}");
+                UnityEngine.Debug.LogWarning($"[CharForge] 兜底 Kill 失败：{e.Message}");
             }
         }
 
@@ -321,7 +321,11 @@ namespace CharForge.EditorTools.Services
             return profile;
         }
 
-        /// <summary>按当前设置组装自带 Python 服务的启动配置。</summary>
+        /// <summary>
+        /// 按当前设置组装自带 Python 服务的启动配置。
+        /// ⚠️ 它要启动的那个 `server/` 已于 v0.4.5 从本仓库删除——照现状调用只会启到一个不存在的模块。
+        /// 保留本方法是为了不破坏旧流水线的编译完整性；除复活 Sidecar 路线外不要走这里。
+        /// </summary>
         public static LaunchProfile BuildSidecarProfile()
         {
             string dir = CharForgeSettings.SidecarWorkingDir;

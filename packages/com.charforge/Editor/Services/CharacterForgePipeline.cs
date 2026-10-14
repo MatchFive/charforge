@@ -270,18 +270,38 @@ namespace CharForge.EditorTools.Services
                 ? request.Actions
                 : new List<string> { "idle" };
 
-            // 默认只勾「南/北」时，产出不会有东/西片段——不说清楚，用户会以为四向坏了。
-            if (directions.Count < 4)
+            // 逐格组合优先：窗口矩阵勾的是（方向, 动作）对，按对生成才不会把
+            // 没勾的组合（如「东×待机」）捎进产出。Combos 为空时退回笛卡尔积，
+            // 兼容旧的请求构造方。
+            var combos = new List<(string direction, string action)>();
+            if (request.Combos != null)
+            {
+                foreach (var raw in request.Combos)
+                {
+                    if (string.IsNullOrEmpty(raw)) continue;
+                    int sep = raw.IndexOf('_');
+                    if (sep <= 0 || sep == raw.Length - 1) continue;
+                    combos.Add((raw.Substring(0, sep), raw.Substring(sep + 1)));
+                }
+            }
+            if (combos.Count == 0)
+                foreach (var d in directions)
+                    foreach (var a in actions)
+                        combos.Add((d, a));
+
+            // 产出覆盖的方向：不说清楚，用户会以为四向坏了。
+            var usedDirections = combos.Select(c => c.direction).Distinct().ToList();
+            if (usedDirections.Count < 4)
             {
                 warnings.Add(
-                    $"本次只生成 {directions.Count} 个方向（{string.Join("、", directions)}），" +
+                    $"本次只生成 {usedDirections.Count} 个方向（{string.Join("、", usedDirections)}），" +
                     "其余朝向不会有动画片段，facing 切到那些方向时会没有片段可播；" +
                     "要验收四向一致性请把东南西北都勾上。");
             }
 
             // ── [3] 逐帧生成 ──
             var placed = new List<PlacedFrame>();
-            int total = directions.Count * actions.Count * framesPerClip;
+            int total = combos.Count * framesPerClip;
             int done = 0;
 
             // 同一次任务内的所有帧共用一个种子，见 SeedFromJobId 的说明。
@@ -290,12 +310,10 @@ namespace CharForge.EditorTools.Services
             bool usedLocalMatting = false;
             var mattingNotes = new List<string>();
 
-            foreach (var direction in directions)
+            foreach (var (direction, action) in combos)
             {
-                foreach (var action in actions)
+                for (int i = 0; i < framesPerClip; i++)
                 {
-                    for (int i = 0; i < framesPerClip; i++)
-                    {
                         ct.ThrowIfCancellationRequested();
 
                         string sliceName = $"{direction}_{action}_{i:00}";
@@ -344,7 +362,13 @@ namespace CharForge.EditorTools.Services
                         byte[] finalPng = matted;
                         if (finalPng == null)
                         {
-                            var outcome = LocalMatting.EnsureTransparent(png);
+                            // LocalMatting 解码 PNG 要建 Texture2D——Unity API 只能在主线程调。
+                            // 占位后端的任务是同步完成的，整条流水线一直内联在主线程上跑，
+                            // 这个坑不暴露；ComfyUI 后端是真异步，ConfigureAwait(false) 会把
+                            // 后续代码甩到线程池，直接踩 Unity 的主线程检查（v0.3.4 实测）。
+                            var outcome = await EditorMainThread
+                                .RunAsync(() => LocalMatting.EnsureTransparent(png))
+                                .ConfigureAwait(false);
                             finalPng = outcome.Png;
                             if (outcome.Changed) usedLocalMatting = true;
                             else if (!string.IsNullOrEmpty(outcome.Note) && !mattingNotes.Contains(outcome.Note))
@@ -359,7 +383,6 @@ namespace CharForge.EditorTools.Services
                             Png = finalPng
                         });
                     }
-                }
             }
 
             // 后端自己攒下的告警（如「姿势模板缺失」「找不到 load_image 节点」）。
@@ -458,7 +481,7 @@ namespace CharForge.EditorTools.Services
         private static Task<PrefabAssembler.AssembleReport> AssembleOnMainThreadAsync(string jobDir) =>
             EditorMainThread.RunAsync(() => PrefabAssembler.Assemble(jobDir));
 
-        // ────────────────────────── 组装指令（镜像 server/pipeline/assemble.py）──────────────────────────
+        // ────────────────────────── 组装指令（原镜像 server/pipeline/assemble.py，后者于 v0.4.5 删除）──────────────────────────
 
         private static AssemblySpec BuildAssemblySpec(
             CharacterCard card, SpriteManifest manifest, JobRequest request, string jobId)
@@ -697,6 +720,11 @@ namespace CharForge.EditorTools.Services
             if (card.EraOrPeriod != null) parts.Add($"historically accurate costume, {card.EraOrPeriod} era");
             parts.AddRange(style.PositiveTags);
             parts.Add("transparent background, single character, centered");
+
+            // 官方 alpha 句式（Qwen-Image-2.1）：插件覆写工作流默认 prompt 后，
+            // 这两句必须由本函数补回，否则模型画的是不透明底、只靠 LocalMatting 抠图。
+            // 对 SD1.5 路线无副作用（其 VAE 本就无 alpha，该句式反而引导干净纯色底）。
+            parts.Add("This is an RGBA image with transparency. The image has alpha channel and the background is transparent.");
 
             return string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
         }

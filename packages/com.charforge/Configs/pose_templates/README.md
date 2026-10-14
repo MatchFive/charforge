@@ -62,15 +62,24 @@
 改用**纯色剪影 + Canny/Depth 模型**效果更好：
 自己画 64×64 的黑白剪影，然后按同样的命名放进来。
 
-## 与 Python 侧的对接
+## 与生成端的对接
 
-`server/pipeline/generate.py` 的 `_generate_local` 需要在生成每一帧时把对应模板传进
-`control_image` 参数：
+> ⚠️ 本节原名「与 Python 侧的对接」。它描述的那个调用方——`server/pipeline/generate.py`——
+> 已于 **v0.4.5** 随服务端整体删除。**当前读取本目录的只有 Unity 侧代码。**
 
-```python
-control = settings.pose_templates_path / f"{direction.value}_{action.value}_{i:02d}.png"
-_generate_local(positive, negative, out_path, control_image=str(control), seed=seed, size=size)
+读取入口是 `Editor/Services/CharacterForgePipeline.cs`：它按 `{direction}_{action}_{NN}`
+拼出文件名，再交给 `CharForgePaths.ResolveFile("pose_templates/<名字>.png")` 做**两级查找**：
+
+```
+1. <Unity 工程根>/CharForge/pose_templates/<名字>.png   ← 你自己的骨架图放这里（优先）
+2. <插件包>/Configs/pose_templates/<名字>.png            ← 随包默认
 ```
 
-骨架图缺失时不要静默跳过——要么显式报错，要么明确记录到 `warnings`。
-静默跳过会导致「部分帧有一致性、部分帧没有」，这种问题在打包后极难排查。
+命中后由 `ComfyUiBackend` 上传给本机 ComfyUI，作为 ControlNet 的 `LoadImage` 输入。
+
+> 本目录属 **SD1.5 + ControlNet** 路线的姿势骨架；当前三步流程的帧动画走的是
+> keep_pose 动作模仿，姿势参考库在 `Configs/comfyui/` 旁的 `pose_refs/<动作>/<朝向>/`，两者不要混。
+
+骨架图缺失时**不要静默跳过**——`ComfyUiBackend` 会显式告警（同系列多帧只报一次）。
+但要注意：**结果对不对不能靠「没报错」推断**——缺图时各帧会沿用工作流里写死的那张，
+四向姿势根本没被锁住，画面照样出得来，只有告警里那一行字能告诉你。

@@ -34,7 +34,7 @@ namespace CharForge.EditorTools.Backends
         private static readonly HttpClient Http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 
         public string Id => "sidecar";
-        public string DisplayName => "自带 Python 服务（server/）";
+        public string DisplayName => "自带 Python 服务（server/，本仓库已于 v0.4.5 移除）";
         public BackendKind Kind => BackendKind.Sidecar;
         public int Priority => 80;
         public BackendCapability Capabilities => BackendCapability.FrameGeneration | BackendCapability.WholeJob;
@@ -51,7 +51,8 @@ namespace CharForge.EditorTools.Backends
                 {
                     return BackendStatus.Fail(
                         $"服务响应异常（HTTP {(int)resp.StatusCode}）",
-                        "确认已在本仓库根目录执行 python -m server.cli serve。");
+                        "端口上有东西在应答，但不像 CharForge 服务端。注意：本仓库的 Python 服务端" +
+                        "（server/ 与 `python -m server.cli`）已于 v0.4.5 一并删除，需要时从 git 历史取回。");
                 }
 
                 var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
@@ -62,7 +63,8 @@ namespace CharForge.EditorTools.Backends
             {
                 return BackendStatus.Fail(
                     $"3 秒内连不上 {BaseUrl}",
-                    "点窗口里的「启动后端」由插件代管，或手动执行：python -m server.cli serve");
+                    "本仓库的 Python 服务端（server/）已于 v0.4.5 删除，此后端默认没有服务可连；" +
+                    "要复活 Sidecar 路线，先 `git log --oneline -- server/` 从历史取回实现。");
             }
             catch (Exception e)
             {
@@ -135,8 +137,8 @@ namespace CharForge.EditorTools.Backends
                     return new WholeJobResult
                     {
                         Ok = false,
-                        Error = $"超过 {JobTimeoutSeconds} 秒未完成。请查看服务端日志，" +
-                                "或先在终端用 python -m server.cli smoke 单独验证流水线。"
+                        Error = $"超过 {JobTimeoutSeconds} 秒未完成。请查看服务端日志。" +
+                                "（原提示里的 `python -m server.cli smoke` 随服务端已于 v0.4.5 删除，不再可用。）"
                     };
                 }
 

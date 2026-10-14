@@ -6,8 +6,9 @@ namespace CharForge.EditorTools.Data
     /// <summary>
     /// C# 侧的产物契约。
     ///
-    /// **这些类型必须与 <c>schemas/*.schema.json</c> 以及 Python 侧
-    /// <c>server/models/schemas.py</c> 逐字段保持一致。** 三处任一处改名都要同步改另两处，
+    /// **这些类型必须与 <c>schemas/*.schema.json</c> 逐字段保持一致。**
+    /// （历史上还有第三处 Python 侧 <c>server/models/schemas.py</c>，随服务端于 v0.4.5 一并删除；
+    /// 若将来恢复它，记得把「两处同步」重新算回三处。）
     /// 这是本项目唯一的强耦合点，也是刻意的：契约稳定之后，后端换成 Sentis、ComfyUI
     /// 还是远端 API，装配逻辑一行都不用改。
     /// </summary>
@@ -26,6 +27,10 @@ namespace CharForge.EditorTools.Data
         [JsonProperty("style_preset")] public string StylePreset = "custom";
         [JsonProperty("actions")] public List<string> Actions = new List<string> { "idle", "walk" };
         [JsonProperty("directions")] public List<string> Directions = new List<string> { "south", "north", "east", "west" };
+        // 逐格组合（"方向_动作"），来自窗口的矩阵选择。非空时流水线按组合生成，
+        // 不再做 Actions × Directions 的笛卡尔积——勾「行走×东」就不该捎上 east_idle。
+        [JsonProperty("combos", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> Combos;
         [JsonProperty("movement")] public MovementSpec Movement = new MovementSpec();
         [JsonProperty("dialogue_enabled")] public bool DialogueEnabled = true;
         [JsonProperty("forbidden")] public List<string> Forbidden = new List<string>();

@@ -7,35 +7,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  python:
-    name: 服务端（lint + 单测）
+  python-tools:
+    name: 静态检查工具（lint + 单测）
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           cache: pip
 
-      - name: 安装依赖
+      # 仓库里已没有服务端（`server/` 于 v0.4.5 删除），剩下的 Python 全是 CI 工具脚本，
+      # 所以**不装项目本身**（pyproject 也不再声明为包），只装跑这些脚本要用的东西。
+      - name: 安装工具
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install ruff pytest
 
       - name: Lint
         run: ruff check .
 
-      - name: 类型检查
-        run: mypy server || true
-
-      - name: 单测（mock 后端，全链路冒烟）
-        env:
-          CHARFORGE_BACKEND: mock
+      # 工具自己的规则也得有人看守：一条写歪的规则要么漏报（等于没有）、
+      # 要么误报（没人再信它）。tests/ 测的正是这两件事。
+      - name: 单测（C# 静态检查器 + 包结构校验器）
         run: pytest -q
 
   unity-package:

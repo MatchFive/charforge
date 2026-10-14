@@ -47,7 +47,15 @@ namespace CharForge.EditorTools.Backends
         /// <summary>单帧超时（秒）。ComfyUI 冷启动 + SDXL 20 步 / 1024px 通常 20-60 秒。</summary>
         public int FrameTimeoutSeconds = 240;
 
-        private static readonly HttpClient Http = new HttpClient
+        // 关键：显式禁用系统代理。Unity 的 HttpClient 默认沿用 Windows 系统代理，
+        // 而本插件只与本地 ComfyUI（127.0.0.1:8188）通信——走代理的实测后果是：
+        // 普通 JSON 请求（/prompt、/history）能被代理正常转发，multipart 文件上传
+        // （/upload/image）却被代理重置连接，姿势骨架图永远传不上去，
+        // 随后 /prompt 校验 LoadImage 时报 "Invalid image file" 的 400。
+        private static readonly HttpClient Http = new HttpClient(new HttpClientHandler
+        {
+            UseProxy = false
+        })
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
@@ -63,10 +71,18 @@ namespace CharForge.EditorTools.Backends
         // 同一句话只报一次——16 帧重复 16 遍会把窗口日志冲掉。
         private readonly List<string> _warnings = new List<string>();
         private readonly HashSet<string> _warnedOnce = new HashSet<string>();
+        private bool _workflowPathLogged;
 
         private void Warn(string message)
         {
-            if (_warnedOnce.Add(message)) _warnings.Add(message);
+            if (_warnedOnce.Add(message))
+            {
+                _warnings.Add(message);
+                // 告警必须同时在控制台可见：流水线中途抛异常时 DrainWarnings 不会被调到，
+                // 这里曾经只进内部列表——"上传姿势图失败"这种关键线索在控制台上毫无痕迹，
+                // 用户只看到一个 400 Invalid image file，无从排查。
+                UnityEngine.Debug.LogWarning($"[CharForge][告警] {message}");
+            }
         }
 
         public IReadOnlyList<string> DrainWarnings()
@@ -146,6 +162,14 @@ namespace CharForge.EditorTools.Backends
                 throw new FileNotFoundException($"找不到 ComfyUI 工作流：{WorkflowApiJsonPath}");
 
             var bindings = WorkflowBindings.Load(WorkflowApiJsonPath);
+
+            // 每次任务打一次实际加载的工作流路径：bindings 失效的常见原因就是
+            // 这里指向了一份旁边没有 .bindings.json 的拷贝，不写出来无从核对。
+            if (!_workflowPathLogged)
+            {
+                _workflowPathLogged = true;
+                UnityEngine.Debug.Log($"[CharForge] ComfyUI 工作流：{WorkflowApiJsonPath}");
+            }
             var workflow = JObject.Parse(await ReadAllTextAsync(WorkflowApiJsonPath, ct).ConfigureAwait(false));
 
             // 绑定解析（含"找不到提示词节点"）与提示词注入都可能出问题，两者都必须说出来。
@@ -186,7 +210,23 @@ namespace CharForge.EditorTools.Backends
         private async Task ApplyPoseTemplateAsync(
             JObject workflow, WorkflowBindings bindings, FrameRequest request, CancellationToken ct)
         {
-            if (string.IsNullOrEmpty(bindings.LoadImage)) return;   // 该工作流没有 LoadImage 节点
+            if (string.IsNullOrEmpty(bindings.LoadImage))
+            {
+                // bindings 没给 load_image 时不再静默返回：如果工作流里其实有 LoadImage 节点，
+                // 说明"姿势注入链路断了"而不是"本来就不需要"——必须说出来，
+                // 否则症状（Invalid image file / 姿势不生效）会被误判成模型或工作流的问题。
+                foreach (var prop in workflow.Properties())
+                {
+                    if ((string)prop.Value?["class_type"] != "LoadImage") continue;
+                    Warn(
+                        "bindings 未提供 load_image（bindings 文件缺失或没写该键），" +
+                        $"但工作流节点 {prop.Name} 是 LoadImage——姿势骨架图不会被注入，" +
+                        "该节点将使用工作流里写死的图片（而那个文件多半不在 ComfyUI 的 input 目录，" +
+                        "会直接报 Invalid image file）。请检查工作流路径旁的同名 .bindings.json。");
+                    break;
+                }
+                return;
+            }
 
             var inputs = workflow[bindings.LoadImage]?["inputs"];
             if (inputs == null)
@@ -197,12 +237,18 @@ namespace CharForge.EditorTools.Backends
 
             if (string.IsNullOrEmpty(request.PoseTemplatePath) || !File.Exists(request.PoseTemplatePath))
             {
-                // 文案里不带帧名，这样 16 帧只会报一次（Warn 有去重），
-                // 否则同一条问题会刷 16 遍把日志冲掉。
+                // 文案只带「方向_动作」不带帧号：同系列多帧只报一次（Warn 有去重），
+                // 但换方向/换动作时必须重新报——曾因文案固定成示例文件名，
+                // 用户换了方向后告警被去重吞掉，看起来像"文件放了却还是缺"。
+                string stem = request.SliceName ?? "frame";
+                int last = stem.LastIndexOf('_');
+                if (last > 0 && int.TryParse(stem.Substring(last + 1), out _))
+                    stem = stem.Substring(0, last);
+                string expected = Path.Combine("pose_templates", stem + "_00.png");
                 Warn(
-                    "缺少姿势骨架图，本次各帧都沿用工作流里写死的那张图片——" +
-                    "四向姿势不会被锁住。放置位置：" +
-                    CharForgePaths.DescribeLookup(Path.Combine("pose_templates", "south_idle_00.png")) +
+                    $"缺少姿势骨架图（本帧 {request.SliceName}，期望 {expected.Replace('\\', '/')} 这一系列）。" +
+                    "本次各帧都沿用工作流里写死的那张图片——四向姿势不会被锁住。放置位置：" +
+                    CharForgePaths.DescribeLookup(expected) +
                     "；命名约定与制作方法见该目录下的 README。");
                 return;
             }
@@ -213,6 +259,7 @@ namespace CharForge.EditorTools.Backends
                 string uploaded = await UploadImageAsync(bytes, request.SliceName + ".png", ct)
                     .ConfigureAwait(false);
                 inputs["image"] = uploaded;
+                UnityEngine.Debug.Log($"[CharForge] 姿势注入 {request.SliceName} <- {Path.GetFileName(request.PoseTemplatePath)}");
             }
             catch (Exception e)
             {
@@ -288,7 +335,14 @@ namespace CharForge.EditorTools.Backends
 
             using var resp = await Http.PostAsync($"{BaseUrl.TrimEnd('/')}/upload/image", content, ct)
                 .ConfigureAwait(false);
-            resp.EnsureSuccessStatusCode();
+            // 不用 EnsureSuccessStatusCode：它抛出的异常只有一句状态码，
+            // 把响应体（ComfyUI 会写具体原因）一起带上，否则失败原因不可见。
+            if (!resp.IsSuccessStatusCode)
+            {
+                string errBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                throw new HttpRequestException(
+                    $"ComfyUI /upload/image 返回 HTTP {(int)resp.StatusCode}：{Truncate(errBody, 300)}");
+            }
             var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
             return (string)json["name"] ?? fileName;
         }
@@ -325,6 +379,13 @@ namespace CharForge.EditorTools.Backends
             public string PositiveInput;
             public string NegativeInput;
 
+            /// <summary>
+            /// 可选：追加到正向提示词末尾的固定指令。用于多参考图工作流——插件覆写
+            /// prompt 后不知道工作流里有几个参考槽位，「保持 image_1 形象、按 image_2
+            /// 姿势作画」这类槽位指令只能由 bindings 提供。
+            /// </summary>
+            public string PromptSuffix;
+
             /// <summary>Load 阶段产生的告警（启发式解析不出提示词节点时）。</summary>
             private readonly List<string> _loadWarnings = new List<string>();
 
@@ -333,12 +394,26 @@ namespace CharForge.EditorTools.Backends
 
             public static WorkflowBindings Load(string workflowPath)
             {
-                string bindPath = Path.Combine(
-                    Path.GetDirectoryName(workflowPath) ?? ".",
-                    Path.GetFileNameWithoutExtension(workflowPath) + ".bindings.json");
+                string dir = Path.GetDirectoryName(workflowPath) ?? ".";
+                string file = Path.GetFileName(workflowPath);
 
-                if (File.Exists(bindPath))
+                // bindings 文件名要覆盖两种命名约定：
+                //   xxx.workflow.json → xxx.bindings.json（本项目的包内配置）
+                //   xxx.json          → xxx.bindings.json（ComfyUI 原生导出件）
+                // 这里曾有个静默坑：只算一次 GetFileNameWithoutExtension，
+                // 对 "xxx.workflow.json" 得到 "xxx.workflow"，拼出 "xxx.workflow.bindings.json"
+                // ——与实际文件名差一个词，File.Exists 永远 false，bindings 静默失效，
+                // load_image / prompt_suffix 整条链路断掉（2026-10-12 姿势注入 400 实测根因）。
+                string plain = Path.GetFileNameWithoutExtension(file);   // xxx.workflow 或 xxx
+                var candidates = new List<string> { Path.Combine(dir, plain + ".bindings.json") };
+                if (plain.EndsWith(".workflow", StringComparison.OrdinalIgnoreCase))
+                    candidates.Add(Path.Combine(
+                        dir, plain.Substring(0, plain.Length - ".workflow".Length) + ".bindings.json"));
+
+                foreach (string bindPath in candidates)
                 {
+                    if (!File.Exists(bindPath)) continue;
+
                     var j = JObject.Parse(File.ReadAllText(bindPath));
                     return new WorkflowBindings
                     {
@@ -349,11 +424,19 @@ namespace CharForge.EditorTools.Backends
                         Seed = (string)j["seed"],
                         Width = (string)j["width"],
                         Height = (string)j["height"],
-                        LoadImage = (string)j["load_image"]
+                        LoadImage = (string)j["load_image"],
+                        PromptSuffix = (string)j["prompt_suffix"]
                     };
                 }
 
-                return Infer(workflowPath);
+                var inferred = Infer(workflowPath);
+                // bindings 文件缺失 = load_image / prompt_suffix 等高级绑定全部失效，
+                // 这是「姿势注入静默失败」的根因，绝不能无声退化。
+                inferred._loadWarnings.Insert(0,
+                    $"未找到 bindings 文件（依次尝试：{string.Join("；", candidates)}）。" +
+                    "已退化为启发式绑定：load_image（姿势骨架注入）与 prompt_suffix（槽位指令）都不会生效。" +
+                    "请检查工作流旁的 .bindings.json 文件名（两种约定：xxx.bindings.json 或 xxx.workflow.bindings.json）。");
+                return inferred;
             }
 
             /// <summary>
@@ -421,7 +504,10 @@ namespace CharForge.EditorTools.Backends
             {
                 var warnings = new List<string>(_loadWarnings);
 
-                if (!SetText(workflow, Positive, req.PositivePrompt, PositiveInput, PositiveKeyCandidates))
+                string positiveText = string.IsNullOrEmpty(PromptSuffix)
+                    ? req.PositivePrompt
+                    : req.PositivePrompt + ", " + PromptSuffix;
+                if (!SetText(workflow, Positive, positiveText, PositiveInput, PositiveKeyCandidates))
                 {
                     warnings.Add(
                         $"没能把提示词写进节点 {Positive ?? "(未指定)"}：" +

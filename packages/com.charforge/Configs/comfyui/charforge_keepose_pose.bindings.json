@@ -1,0 +1,25 @@
+{
+  "seed": "481",
+  "load_image_character": "470",
+  "load_image_pose": "507",
+  "auto_prompt": true,
+  "pose_data_node": "488",
+  "pose_copy_prompt_node": "484",
+  "pose_copy_prompt": "Draw character from image2\nReplace the pose of <image 2> with the pose of <image 1>. This is an RGBA image with transparency.\nCopy the pose precisely: keep each limb where the mannequin has it, including which leg is lifted or planted and how the arms swing.",
+  "pose_amplify_by_direction": {
+    "up": 2.2,
+    "down": 2.0,
+    "left": 1.0,
+    "right": 1.0
+  },
+
+
+  "_note_origin": "本工作流由用户在 ComfyUI Desktop 用 VNCCS Pose Studio 搭建并实测验证（2026-10-14，桌面版导出的 API 格式，16 节点）整理而来。相对导出件的改动：剔除节点 504（rgthree Image Comparer，纯显示）与 508（PreviewAny，纯显示）以解除对 rgthree 插件的依赖、filename_prefix 改为 charforge/keepose。整理后 14 节点，实跑验证通过（left k1 试点，姿势模仿与身份保持均正确）。",
+  "_note_auto_prompt": "auto_prompt=true：提示词默认由节点 488（VNCCS_PoseStudio）前端实时生成并接到节点 484 的 prompt（output 1 = lighting_prompt）。**若配置了 pose_copy_prompt，插件会覆写 484.prompt 并顶掉这条链接——这是有意的**（见下条）。未配置时保持原行为：插件不碰提示词。⚠ 2026-10-14 更正：本条原写「绝不要把 484 写成字面量」，该结论已被取证实验推翻，保留此更正痕迹以免再次踩回。",
+  "_note_pose_copy_prompt": "pose_copy_prompt_node + pose_copy_prompt：姿势复制提示词（文案与门控**都在本文件**，不改第三方插件、不需重启 ComfyUI）。背景：Qwen-Image-Edit 2.1 对 image_1（人偶渲染图）的姿势服从度不足，背面朝向尤甚——取证节点（SaveImage 直连 488 输出槽 0）实锤：喂给扩散的人偶是清晰大跨步，成图却双脚并拢站桩；交换 image_1/image_2 顺序无效（keepose_00149）；在提示词里显式要求「严格复制第一张图的姿势」后跨步立刻出现（keepose_00150/00153 验证通过）。**文案结构三要素（v0.5.16 教训）**：①`Draw character from image2`（角色来源）②`This is an RGBA image with transparency.`（透明背景——v0.5.15 曾把它顶掉，输出 100% 实心品红背景，00213~00220 实证；原生模板里这句不可少）③姿势强化句。丢的只有 `<lighting>` 行（前端光照描述，人偶图自带光照信息，可接受）。**槽位约定**：句中 image 2 = 立绘（484.images.image_2 ← 470，姿势被替换到它身上）、image 1 = 人偶（image_1 ← 488，姿势来源）——与 vnccs 原生模板同一套占位语义；若调整槽位顺序，句子必须同步改写。改文案 = 改本文件保存，下次提交即生效（bindings 每任务重读）。",
+  "_note_pose_from_image": "姿势来源 = 节点 507 上传的照片级姿势图。节点 488 收到 pose_image 后走 SAM 3D Body 实时估计（vnccs_sam3d），经前端同步应用到 3D 人偶再渲染——**这要求 ComfyUI Desktop 前端在线**（浏览器组件参与每次捕获，同步超时 150 秒）；只起后端/无头模式跑不了，报错形态是 Pose Studio frontend sync failed。骨架 stick figure 未经 SAM 验证，姿势图请放照片级参考（视频抽帧图实测可用）。",
+  "_note_dual_slot": "双槽位：节点 470（image_2）= 立绘身份，插件上传角色母版覆写；节点 507（pose_image）= 逐帧姿势参考，插件按帧序逐张覆写。输出尺寸由 GetImageSize（节点 505）跟人偶渲染走（view_width/height，实测 1024×1024），插件不绑尺寸。",
+  "_note_lora": "节点 501 挂 VNCCS_QI2_PoseStudioV1.1 LoRA（strength 1）——姿势服从度的关键，缺失该 LoRA 时出图会退回站立倾向。VNCCS 套件（custom_nodes/vnccs-utils）与该 LoRA 是本工作流的运行前提。",
+  "_note_seed": "逐帧生成但同角色共用一颗种子（插件由调用方传入，见 StableSeed 约定）；帧间差异只来自节点 507 的姿势图。",
+  "_note_pose_amplify": "pose_amplify_by_direction：按方向放大 SAM 姿势的肢体摆幅（vnccs 服务端 2026-10-14 起支持，读节点 488 pose_data 的 export.pose_amplify）。背景：背面/正面朝向的步伐在 2D 投影里是前后向位移，SAM 估出的摆幅天然偏小（背面 thigh 只有侧面的 1/3~1/4），弱信号到扩散端会被站姿先验吞掉——walk/up 实锤：人偶在跨步而成图静止。**注入点必须是 joint_rotations**：前端 core.js 的 applySAM3DImport() 有两条通道——① _applySAM3DRotationImport→_applySAM3DHumanoidDeltaImport 用 joint_rotations 与 rest_joint_rotations 的**世界旋转增量**直接写骨骼四元数（真正决定摆角的通道）；② applyWorldKeypointImport(worldKps,{normalizeLegs:true}) 用 joint_coords 只取**方向**、长度归一化。所以 v0.5.12 按 joint_coords 做的「以骨盆为中心径向等比放大」**方向不变 → 与没放大完全等价**（实测两批成图跨批差异 5.8 ≈ 重跑噪声，8 帧横向轮廓 span 仅 6~8px / 体高 920px），还会污染 autoFitSAM3DBoneLengths 的体型拟合。v0.5.13 改为放大旋转增量（轴角 ×factor，钳 140°），再用 rest 骨骼长度 FK 重建位置（长度守恒，不动体型）。**生效自检**：ComfyUI 日志应出现 `CharForge pose_amplify x…: N limb joints re-solved (thigh_r 105.0deg, …)`；打印 `NO limb rotations matched` 表示载荷结构又变了。需重启 ComfyUI Desktop 让补丁加载。系数只 >1 生效，本版是真角度放大（35°→77°），过大出畸形姿势，调参从 2.0 起观察成图。"
+}

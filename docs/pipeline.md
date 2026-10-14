@@ -1,5 +1,14 @@
 # 流水线契约
 
+> ⚠️ **历史存档：本文件描述的七段流水线，连同它两侧的实现，都已不在仓库里。**
+> C# 侧 `CharacterForgePipeline` 于 v0.4.0 下线，Python 侧 `server/` 于 **v0.4.5 整体删除**——
+> 下文出现的 `server/...` 路径、`python -m server.cli` 命令与 `SidecarBackend` 整单委托，
+> 都只是**设计记录**，照着敲会找不到文件。
+> 现在实际走的是**三步直线**：角色立绘 → 帧动画 → 组装 prefab，
+> 三步之间**没有 JSON 契约**，只有磁盘上的产物 —— 见
+> [`README.md`](../README.md) 的「当前路线的数据流」与 [`docs/unity_quickstart.md`](unity_quickstart.md)。
+> 保留本文件的原因是「装配指令可重放」这条设计思路本身仍有价值，**不代表当前流程依赖它**。
+
 七段，每段只依赖上游的**结构化产物**。任何一段都可以单独替换、单独测试。
 
 改契约之前先想清楚：**Python 与 C# 两侧都要跟着改**（`server/models/schemas.py` ↔

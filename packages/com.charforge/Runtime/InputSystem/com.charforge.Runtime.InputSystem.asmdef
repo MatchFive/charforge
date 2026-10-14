@@ -1,0 +1,25 @@
+{
+  "name": "CharForge.Runtime.InputSystem",
+  "rootNamespace": "CharForge.Runtime.InputSystemSupport",
+  "references": [
+    "CharForge.Runtime",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "CHARFORGE_INPUTSYSTEM"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "1.0.0",
+      "define": "CHARFORGE_INPUTSYSTEM"
+    }
+  ],
+  "noEngineReferences": false
+}

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -22,9 +23,36 @@ namespace CharForge.EditorTools
         private static readonly object Gate = new object();
         private static volatile bool _draining;
 
+        /// <summary>
+        /// 主线程 id，在静态构造里捕获。<c>[InitializeOnLoad]</c> 保证那一刻在主线程，
+        /// 此后任何时候都能拿它判定「我现在在不在主线程」。
+        /// </summary>
+        private static readonly int MainThreadId = Thread.CurrentThread.ManagedThreadId;
+
         static EditorMainThread()
         {
             EditorApplication.update += Drain;
+        }
+
+        /// <summary>当前是否在编辑器主线程。</summary>
+        public static bool IsMainThread => Thread.CurrentThread.ManagedThreadId == MainThreadId;
+
+        /// <summary>
+        /// 断言当前在主线程；不在就抛出**指名道姓**的异常。
+        ///
+        /// 为什么值得单独写一个：Unity 自己那句话的后半截——
+        /// 「Constructors and field initializers will be executed from the loading thread
+        /// when loading a scene」——讲的是**另一个场景**，读起来像「构造器 / 字段初始化写错了」，
+        /// 而真实原因通常是「这段代码被 <c>ConfigureAwait(false)</c> 甩到了线程池」。
+        /// v0.4.5 实测为此白跑过一轮排查，所以宁可自己抛一句真话。
+        /// </summary>
+        public static void EnsureMainThread(string what)
+        {
+            if (IsMainThread) return;
+            throw new InvalidOperationException(
+                $"{what} 只能在主线程调用，当前在线程池线程上。" +
+                "Unity 的纹理 / AssetDatabase / GameObject API 都不允许跨线程——" +
+                "请把它包进 EditorMainThread.RunAsync(...)（或让所在方法自封送）再调用。");
         }
 
         /// <summary>把一段需要在主线程执行的操作排队。</summary>

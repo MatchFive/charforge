@@ -1,0 +1,14 @@
+{
+  "1": {"class_type": "NunchakuQwenImageDiTLoader", "inputs": {"model_name": "svdq-int4_r32-qwen-image-edit-2509-lightningv2.0-4steps.safetensors", "cpu_offload": "enable", "num_blocks_on_gpu": 20, "use_pin_memory": "disable"}},
+  "2": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["1", 0], "shift": 3}},
+  "3": {"class_type": "CFGNorm", "inputs": {"model": ["2", 0], "strength": 1}},
+  "4": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "type": "qwen_image", "device": "default"}},
+  "5": {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {"clip": ["4", 0], "prompt": "一只南宋龙泉窑青釉梅瓶，通体粉青釉，开片自然，白底，柔和棚拍光"}},
+  "6": {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {"clip": ["4", 0], "prompt": ""}},
+  "7": {"class_type": "EmptySD3LatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+  "8": {"class_type": "KSampler", "inputs": {"seed": 20261012, "steps": 4, "cfg": 1, "sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": ["3", 0], "positive": ["5", 0], "negative": ["6", 0], "latent_image": ["7", 0]}},
+  "9": {"class_type": "VAELoader", "inputs": {"vae_name": "qwen_image_vae.safetensors"}},
+  "10": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["9", 0]}},
+  "11": {"class_type": "SaveImage", "inputs": {"images": ["10", 0], "filename_prefix": "charforge/nunchaku_smoke"}},
+  "_meta_note": "nunchaku 路线冒烟工作流（API 格式，/prompt 可直接提交）。源自插件官方示例 nunchaku-qwen-image-edit-2509-lightning.json 的 t2i 最小化改写：去掉三张参考图与 VAEEncode 分支，TextEncodeQwenImageEditPlus 每个节点只出一个 conditioning（正负各一个节点，与 TextEncodeQwenImage21 的 0/1 双输出不同）。实测 2026-10-12：1024x1024、4 步、Prompt executed in 15.28s（含首次读盘）。编辑（i2i）时把 EmptySD3LatentImage 换成参考图经 VAEEncode 的 latent，并在 image_1..image_3 槽位喂参考图。"
+}

@@ -1,0 +1,15 @@
+{
+  "positive": "6",
+  "positive_input": "prompt",
+  "negative": "6",
+  "negative_input": "negative_prompt",
+  "seed": "7",
+  "load_image": "10",
+  "prompt_suffix": "保持 image_1 中人物的五官、发型、服装与画风完全不变；按照 image_2 骨架图所示的姿势与朝向作画，输出全身立绘。",
+
+  "_note_origin": "本工作流由 ComfyUI 官方模板「Qwen-Image-2.1 Image Edit」导出的 API 格式整理而来（15 个节点）。相对官方导出件的改动：剔除提示词增强器分支（TextGenerate + PE 9B CLIPLoader + PrimitiveStringMultiline + PreviewAny + BatchImagesNode + 两个 ComfySwitchNode + ImageCompare + EmptyLatentImage）、节点重编号、filename_prefix 改为 charforge/qwen21_i2i、prompt 换成中文文博示例。v0.3.4 起新增节点 10（第二个 LoadImage）接入 images.image_2 作姿势骨架槽位。",
+  "_note_dual_slot": "双参考槽位：节点 1（image_1）= 角色母版，管「画谁」，插件不改写，文件须存在于 ComfyUI 的 input 目录；节点 10（image_2）= 姿势骨架，管「怎么站」，load_image 绑定指向它，插件逐帧上传 pose_templates/<方向>_<动作>_<帧号>.png 覆写。若姿势服从度不足，可尝试把两个槽位的接线对调（骨架上 image_1 让初始潜空间跟随骨架几何）——这是一行 JSON 的实验。",
+  "_note_prompt_suffix": "插件会整体覆写节点 6 的 prompt，覆写后的文本不包含槽位指令，故由 prompt_suffix 固定追加「保持 image_1 / 按 image_2」两句。手工 Queue 时请用节点 6 的默认 prompt（同样写了双槽位语义）。",
+  "_note_resolution": "resolution=0 表示参考图按原尺寸参与编码（32 像素取整），初始潜空间（节点 6 输出 2）自动跟随 image_1 的几何——这就是编辑不跑构图的原因。与 t2i 版同理：没有 width/height 可绑，也不要去绑 resolution。",
+  "_note_no_pe": "与 t2i 版同口径：PE（qwen3.5_9b_..._pe_i2i.int8_convrot，官方 i2i 增强器）会把中文考据词项改写掉，且 16 GB 上与主链路不可兼得，整段移除。"
+}

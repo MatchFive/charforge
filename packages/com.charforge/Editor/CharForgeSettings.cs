@@ -108,14 +108,13 @@ namespace CharForge.EditorTools
             set => SetInt("FramesPerClip", Mathf.Clamp(value, 2, 8));
         }
 
-        // ── 表单输入（② 角色描述区）────────────────────────────
+        // ── 表单输入（第 1 步 · 立绘）──────────────────────────
         //
-        // 为什么要持久化：这些字段此前只活在窗口实例里，重开窗口就被重置回默认值，
-        // 而「年代 / 形制约束」「藏品档案 / 考据要点」正是 persona.json 里【知识边界】的
-        // 唯一来源。静默清空会直接导致产出的人设丢掉文博考据——画面看不出来，
-        // 只有翻开 persona.json 才发现知识边界是空的。
+        // 为什么要持久化：这些字段此前只活在窗口实例里，重开窗口就被重置回默认值——
+        // 静默清空会让人白填一遍描述，还以为是编辑器抽风。
         public const string DefaultPrompt = "博物馆导览员，身着素雅青灰色长衫，手持讲解册，神态温和";
 
+        /// <summary>角色描述（自然语言，供 LLM 锻造成提示词）。</summary>
         public static string Prompt
         {
             get => Get("Prompt", DefaultPrompt);
@@ -128,18 +127,79 @@ namespace CharForge.EditorTools
             set => Set("CharacterName", value ?? "");
         }
 
-        /// <summary>年代 / 形制约束，例如「南宋」。进提示词，也进人设知识边界。</summary>
-        public static string EraOrPeriod
+        /// <summary>
+        /// 文生图提示词（LLM 产物，用户可改）。留空时第 1 步按本地模板现拼一条。
+        /// 单独持久化是因为它是**可复用资产**：同一条提示词反复出立绘、换 seed 试稿，
+        /// 不该每次重跑一遍 LLM。
+        /// </summary>
+        public static string PortraitPrompt
         {
-            get => Get("EraOrPeriod", "");
-            set => Set("EraOrPeriod", value ?? "");
+            get => Get("PortraitPrompt", "");
+            set => Set("PortraitPrompt", value ?? "");
         }
 
-        /// <summary>藏品档案 / 考据要点。进 persona.json 的【知识边界】。</summary>
-        public static string ReferenceNotes
+        // ── 外部 LLM（提示词锻造）──────────────────────────────
+        //
+        // 刻意只做「OpenAI 兼容」这一种协议：DeepSeek、通义、智谱、OpenAI、本地 vLLM
+        // 都提供 /chat/completions，填三个字段就能接。多一种协议就多一份维护成本，
+        // 而这一步的需求仅仅是「把一句话写开」。
+        // 三个字段任一为空 → 自动退回本地模板拼接，并在日志里明说走了哪条路（不许静默）。
+        public static string LlmBaseUrl
         {
-            get => Get("ReferenceNotes", "");
-            set => Set("ReferenceNotes", value ?? "");
+            get => Get("LlmBaseUrl", "");
+            set => Set("LlmBaseUrl", value ?? "");
         }
+
+        public static string LlmApiKey
+        {
+            get => Get("LlmApiKey", "");
+            set => Set("LlmApiKey", value ?? "");
+        }
+
+        public static string LlmModel
+        {
+            get => Get("LlmModel", "");
+            set => Set("LlmModel", value ?? "");
+        }
+
+        /// <summary>
+        /// 请求关闭模型的思考模式（连同一个 <c>chat_template_kwargs.enable_thinking=false</c>）。
+        ///
+        /// **默认关**：不是所有网关都认这个字段，严格的网关会因未知参数直接回 400，
+        /// 所以不能默认发。只有当你用的模型（Qwen3 思考版、DeepSeek-R1 一类）把思维链
+        /// 混在 content 里返回、导致提示词被污染时，才打开它。
+        /// 插件侧无论如何都会剥一遍思考块，这个开关是**从源头省掉**那一步。
+        /// </summary>
+        public static bool LlmNoThink
+        {
+            get => GetBool("LlmNoThink", false);
+            set => SetBool("LlmNoThink", value);
+        }
+
+        /// <summary>第 1 步立绘用的 t2i 工作流文件名（相对 Configs/comfyui/）。</summary>
+        public static string PortraitWorkflowFile
+        {
+            get => Get("PortraitWorkflowFile", "charforge_qwen21_txt2img.workflow.json");
+            set => Set("PortraitWorkflowFile", value ?? "");
+        }
+
+        /// <summary>
+        /// 帧动画用的 keep_pose 工作流文件名（相对 Configs/comfyui/）。
+        /// v0.4.8 起帧动画整体切换为 keep_pose 动作模仿路线，原 2509 整表路线已删除
+        /// （旧设置键 SpritelyWorkflowFile 不再读取，残留值无害）。
+        /// </summary>
+        public static string KeepPoseWorkflowFile
+        {
+            get => Get("KeepPoseWorkflowFile", "charforge_keepose_pose.workflow.json");
+            set => Set("KeepPoseWorkflowFile", value ?? "");
+        }
+
+        /// <summary>动画帧率（Spritely 官方 GIF 同款 8 fps）。</summary>
+        public static int SpriteFrameRate
+        {
+            get => GetInt("SpriteFrameRate", 8);
+            set => SetInt("SpriteFrameRate", Mathf.Clamp(value, 1, 30));
+        }
+
     }
 }

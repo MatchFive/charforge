@@ -8,7 +8,7 @@
 
 "独立工具效果差"这个判断是对的，但**原因不是"用了 Python"**。
 
-v0.1 版本被设计成「Python 是宿主，Unity 只负责最后一步装配」——用户必须离开编辑器去跑 `python -m server.cli`，生成完再回 Unity 导入。这才是体验差的真正来源。业界同类方案（SpriteForge 是 CLI、GenForgeSprite 是 REST 服务、Animyth 是教程脚本）全都有这个问题。
+v0.1 版本被设计成「Python 是宿主，Unity 只负责最后一步装配」——用户必须离开编辑器去跑 `python -m server.cli`（该 CLI 随 v0.4.5 的服务端退役，此处仅作历史说明），生成完再回 Unity 导入。这才是体验差的真正来源。业界同类方案（SpriteForge 是 CLI、GenForgeSprite 是 REST 服务、Animyth 是教程脚本）全都有这个问题。
 
 **真正的分野是"谁是宿主"，而不是"有没有外部进程"。**
 
@@ -55,12 +55,14 @@ Unity 官方的 **Sentis / Unity Inference Engine**（`com.unity.ai.inference`�
 | **`SpriteLibraryAsset`（分类/标签）** | `SpriteLibraryWriter` | ❌ 做不到 |
 | **`AnimatorController` + `AnimationClip`** | `AnimatorWriter` | ❌ 做不到 |
 | **可直接拖进场景的 `.prefab`** | `PrefabAssembler` | ❌ 做不到 |
-| 图层式 `.psd` → **PSD Importer 自动绑骨** | 生成 + `com.unity.2d.psdimporter` | ❌ 做不到 |
+| ~~图层式 `.psd` → PSD Importer 自动绑骨~~ | （已移除，见 v0.4.0） | — |
 
 第 2、3、5 行是**只有插件形态才存在的产品能力**，也是"效果差"这个直觉的真正落点：
 
 - **Sprite Library + SpriteResolver**：四向 idle/walk 被组织成「分类=朝向/动作、标签=帧或变体」，运行期 `SetCategoryAndLabel` 换装、换表情**不需要重新导入、不丢蒙皮**。独立工具给的 PNG 做不到这件事。
-- **PSD Importer 路径**：把角色按「底身 / 发型 / 外袍 / 面部」分层输出成 `.psb`，Unity 的 PSD Importer 打开 Mosaic + Character Rig 就能自动生成**带骨骼的 prefab**。这是 2D 角色从"帧动画"升级到"骨骼动画"的入口，而它**必须由插件在工程内生成**。
+- **帧动画装配**（v0.4.0 主线）：一次生成 3×2 六帧 → 逐帧切片去白底 → Animator 状态机 → prefab。
+  曾尝试过「PSD 分层 + PSD Importer 自动绑骨」的骨骼路线，实测后**整条移除**：逐件拆分（把立绘拆成头/躯干/双臂/双腿）在宽袍袖与长下摆上必然糊边，而拆件质量直接决定成品质量；
+  帧动画没有这个中间环节，少一环就少一处会坏的地方。
 
 ---
 
@@ -87,10 +89,12 @@ Unity 官方的 **Sentis / Unity Inference Engine**（`com.unity.ai.inference`�
 ```
 Unity Editor（宿主 · 控制面）
 │
-├─ CharacterForgeWindow（UI Toolkit）
-│    描述 / 参考图 / 方向动作 / 后端选择
+├─ CharacterAssetWindow（UI Toolkit，唯一窗口）
+│    ① 立绘（描述 → LLM 提示词 → t2i）  ② 帧动画（骨架图 → 六帧）  ③ 组装 prefab
+│        └─ ForgeArchive：①的判据留痕（描述 / 模型正文 / 画风件 / 立绘）
+│           → <工程根>/CharForge/forge_log/（工程根，不进 Assets）
 │
-├─ CharacterForgePipeline（C# 编排，替代 Python orchestrator 的主控地位）
+├─ CharacterForgePipeline（C# 编排）                                  ⚠ 0.4.0 已下线（仍能编译，窗口无入口）
 │    ① 角色卡提炼      → 可走 Backend.DescribeAsync 或本地规则
 │    ② 风格约束        → Backend.ExtractStyleAsync（参考图 → 风格约束）
 │    ③ 逐帧生成        → Backend.GenerateAsync（返回图片字节）
@@ -99,7 +103,7 @@ Unity Editor（宿主 · 控制面）
 │    ⑥ 打包 sheet      → UnityAssetWriter
 │    ⑦ 装配            → SpriteImportSetup + SpriteLibraryWriter + AnimatorWriter + PrefabAssembler
 │
-└─ 后端（可替换 · 数据面）
+└─ 后端（可替换 · 数据面）                                          ⚠ 0.4.0 已下线
      SentisBackend（进程内）／ ComfyUiBackend ／ SidecarBackend ／ HttpBackend ／ MockBackend
 ```
 
@@ -118,7 +122,7 @@ Unity Editor（宿主 · 控制面）
 | 切片导入 | `TextureImporter.spritesheet` | **`SpriteDataProviderFactories`（Unity 6 推荐 API）** |
 | 动画 | 只有 AnimatorController | AnimatorController + **SpriteLibraryAsset** |
 | 后端进程 | 用户手工启动 | **`BackendProcessManager` 托管** |
-| Python 服务 | 唯一的生成套件 | **可选后端之一（`server/` 保留，语义降级）** |
+| Python 服务 | 唯一的生成套件 | **可选后端之一（`server/` 已于 v0.4.5 整体删除）** |
 | 装配契约 | JSON spec 回放 | JSON spec 仍保留（**可重放、CI 可跑**），但生成主控在 C# |
 
 **刻意保留的**：`assembly_spec.json` / `manifest.json` / `persona.json` 三份契约不变。理由：装配指令可重放（改台词不用重新出图）、CI 不依赖 Unity、人设与资产解耦。这是 v0.1 做对的地方，不该丢。
@@ -138,7 +142,7 @@ Unity Editor（宿主 · 控制面）
 
 ## 八、复用与延伸
 
-本仓库的 `server/`（Python）在 v0.2 后不再承担编排职责，但**代码没有浪费**：它的 prompt_forge / style_lock / normalize 逻辑是 `SidecarBackend` 的服务端实现，第三、五、六段仍然可用。这与《开源立项书-Unity游戏AI-NPC运行时》的关系也保持不变：
+本仓库的 `server/`（Python）在 v0.2 后不再承担编排职责；**v0.4.5 已将其整体删除**。它曾是 `SidecarBackend`（整单委托型后端）的服务端实现——删除后该后端仍能编译，但已没有对应的服务端可连（要复活这条路线，从 git 历史取：`git log --oneline -- server/`）。这与《开源立项书-Unity游戏AI-NPC运行时》的关系保持不变：
 
 - **本项目**管 NPC 的「出生」（生产装配）
 - **Game Agent Runtime**管 NPC 的「活着」（运行时记忆、打断、降级、成本、合规）

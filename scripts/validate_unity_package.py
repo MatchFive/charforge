@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +56,9 @@ EXTERNAL_ASSEMBLIES = {
     "Unity.2D.Animation.Runtime",
     "Unity.InferenceEngine",
     "Unity.Sentis",
+    # 输入后端可选集成的门控程序集（CharForge.Runtime.InputSystem）才引用它；
+    # 核心程序集刻意不引用，保证未装 Input System 包的工程照样编译。
+    "Unity.InputSystem",
 }
 
 NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.]+)\s*$", re.MULTILINE)
@@ -119,7 +121,6 @@ def owning_asmdef(cs_path: Path, asmdefs: dict[Path, dict]) -> Path | None:
 
 
 def check_cs_files(asmdefs: dict[Path, dict]) -> None:
-    package_assemblies = {d.get("name") for d in asmdefs.values() if d.get("name")}
     seen_types: dict[str, Path] = {}
 
     for cs in sorted(PKG.rglob("*.cs")):
@@ -134,7 +135,7 @@ def check_cs_files(asmdefs: dict[Path, dict]) -> None:
                  "在用户工程里与用户脚本冲突")
 
         for ns in NAMESPACE_RE.findall(text):
-            for kind, name in TYPE_RE.findall(text):
+            for _kind, name in TYPE_RE.findall(text):
                 fqn = f"{ns}.{name}"
                 if fqn in seen_types:
                     fail(f"类型重名：{fqn} 同时出现在 {seen_types[fqn].relative_to(ROOT)} 与 {rel}")
@@ -167,7 +168,7 @@ def check_cs_files(asmdefs: dict[Path, dict]) -> None:
 def check_asmdef_references(asmdefs: dict[Path, dict]) -> None:
     package_assemblies = {d.get("name") for d in asmdefs.values() if d.get("name")}
 
-    for directory, data in asmdefs.items():
+    for _directory, data in asmdefs.items():
         name = data.get("name", "?")
         for ref in data.get("references", []):
             if ref in package_assemblies or ref in EXTERNAL_ASSEMBLIES:
@@ -229,7 +230,10 @@ def _meta_assets():
     for path in sorted(PKG.rglob("*")):
         if path == PKG or path.suffix == ".meta":
             continue
-        if "obj" in path.parts or "~" in path.name:
+        # "~" 豁免必须看**路径的每一段**：Unity 忽略的是「名字以 ~ 结尾的目录」及其**全部内容**，
+        # 只查 path.name 会把目录本身豁免、却把目录里的每个子文件都报成缺 meta
+        # （2026-10-12 spritely_charts~ 骨架图库入库时实测：239 条误报全是这个原因）。
+        if "obj" in path.parts or any(p.endswith("~") for p in path.parts):
             continue
         yield path
 

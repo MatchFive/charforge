@@ -99,9 +99,9 @@ namespace CharForge.Runtime
             }
 
             if (_animator == null) return;
+            // 朝向由 SetFacing 写 facing（规范索引见 NpcCharacter.FacingDirection），
+            // 这里只负责 isMoving 开关。此前还写过 moveX/moveY——控制器里从没有过这两个参数，纯死写入。
             _animator.SetBool("isMoving", moving);
-            _animator.SetFloat("moveX", direction.x);
-            _animator.SetFloat("moveY", direction.y);
         }
 
 #if UNITY_EDITOR

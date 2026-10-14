@@ -1,64 +1,18 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "charforge"
-version = "0.1.0"
-description = "Unity 2D character asset pipeline: prompt + style reference -> walkable, talkable NPC prefab"
-readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "Your Name" }]
-keywords = ["unity", "2d", "game-dev", "stable-diffusion", "controlnet", "agent"]
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "Topic :: Games/Entertainment",
-  "Topic :: Multimedia :: Graphics",
-]
-
-dependencies = [
-  "fastapi>=0.111",
-  "uvicorn[standard]>=0.30",
-  "pydantic>=2.7",
-  "pydantic-settings>=2.3",
-  "python-multipart>=0.0.9",
-  "pillow>=10.3",
-  "numpy>=1.26",
-  "pyyaml>=6.0",
-  "httpx>=0.27",
-  "websockets>=12.0",
-]
-
-[project.optional-dependencies]
-# 本地生成链路（需要 GPU；CPU 也能跑但慢）
-local = [
-  "torch>=2.2",
-  "diffusers>=0.30",
-  "transformers>=4.42",
-  "accelerate>=0.31",
-  "controlnet-aux>=0.0.7",
-  "rembg>=2.0.50",
-  "onnxruntime>=1.18",
-  "opencv-python-headless>=4.9",
-  "scikit-image>=0.23",
-]
-# 云端生成链路（无 GPU 也能出图，需自带 API key）
-cloud = [
-  "openai>=1.30",
-]
-dev = [
-  "pytest>=8.2",
-  "pytest-asyncio>=0.23",
-  "ruff>=0.5",
-  "mypy>=1.10",
-]
-
-[project.scripts]
-charforge = "server.cli:main"
-
-[tool.setuptools.packages.find]
-include = ["server*"]
+# 本文件只承载**工具配置**（ruff / pytest），不再是一个可安装的 Python 包。
+#
+# 仓库里的 Python 分两块：
+#   scripts/ + tests/                「CI 用的静态检查工具」（本文件管它们）
+#   agent/                           npcforge Agent——独立可安装包，自己的 pyproject.toml
+#
+#   scripts/check_unity_api_misuse.py     C# 语法与 Unity API 误用（10 条规则）
+#   scripts/validate_unity_package.py     asmdef 归属 / 引用 / 资产与 .meta
+#   scripts/validate_examples.py          examples/*/character.yaml ↔ schemas/
+#   scripts/check_prompt_parts.py         立绘固定件三处对齐（C# ←→ bindings ←→ 工作流）
+#
+# 原服务端实现 `server/`（FastAPI + pydantic 的装配指令生成器）已于 v0.4.5 整体删除，
+# 连同它那一串只在服务端用到的依赖（fastapi / uvicorn / pydantic / pillow / numpy …）
+# 和 `charforge` CLI 入口一并移除。要找回那套实现，从 git 历史取：
+#   git log --oneline -- server/ | head
 
 [tool.ruff]
 line-length = 100
@@ -70,8 +24,3 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
-
-[tool.mypy]
-python_version = "3.10"
-ignore_missing_imports = true

@@ -55,6 +55,17 @@ namespace CharForge.EditorTools.Services
             return EditorMainThread.RunAsync(() => NormalizeAll(frames));
         }
 
+        /// <summary>
+        /// 同步入口：给**无头 CLI** 用。
+        ///
+        /// 为什么不直接 <c>NormalizeAllAsync(...).GetAwaiter().GetResult()</c>：
+        /// 那个版本是靠 <c>EditorApplication.update</c> 的排空队列把工作送回主线程的，
+        /// 而 <c>-batchmode -executeMethod</c> 期间主循环被 executeMethod 占住、
+        /// update 根本不会触发 —— 于是 await 永远等不到结果，**直接死锁**。
+        /// 批处理下 executeMethod 本来就在主线程，同步直接调即可。
+        /// </summary>
+        public Result NormalizeAllSync(IReadOnlyList<byte[]> frames) => NormalizeAll(frames);
+
         private Result NormalizeAll(IReadOnlyList<byte[]> frames)
         {
             var result = new Result();

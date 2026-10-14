@@ -9,14 +9,19 @@ venv/
 .ruff_cache/
 
 # 生成产物（绝不入库）
-out/
-outputs/
+#
+# 前导 `/` 不是装饰：不加它时 `models/` 会连带匹配任意层级的同名目录——
+# 本仓库就真发生过一次：`server/models/` 被这条规则吃掉，`schemas.py` 从未入库，
+# 于是"本地跑得好好的"服务端在全新 clone 里 `from server.models... import` 直接炸。
+# 这类"文件在本地、clone 下来却没有"的静默失效，一律靠锚定到仓库根避免。
+/out/
+/outputs/
 *.job/
 assets/generated/
 
 # 模型权重（本地缓存，不入库）
-models/
-checkpoints/
+/models/
+/checkpoints/
 *.safetensors
 *.ckpt
 *.pth
@@ -43,8 +48,15 @@ UserSettings/
 # Unity 插件在工程根目录落的中间产物缓存（非 Assets 下，见 ProjectAssetWriter）
 CharForgeCache/
 
+# npcforge Agent 的运行状态：作业记录、逐角色日志、生成中途的帧。
+# 全是本机产物（几百 MB 起），换台机器重跑即可，不入库。
+/agent/.npcforge/
+
 # 系统
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+# 发布包构建产物（scripts/build_release.py）
+/dist/
